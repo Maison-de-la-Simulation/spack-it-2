@@ -447,4 +447,5 @@ def route_after_metadata(state: AgentState) -> str:
 
     if not state["metadata"].get("source_sha256"):
         return "missing_metadata"
-        return "ready_for_recipe"
+
+    return "ready_for_recipe"
