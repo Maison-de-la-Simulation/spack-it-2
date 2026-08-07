@@ -18,6 +18,11 @@ def _repo_name_from_url(repo_url: str) -> str:
 
 
 def _normalize_license(license_data) -> str | None:
+    """Keep the upstream license declaration in a consistent string form.
+
+    This does not try to infer an SPDX identifier. A license file name or
+    free-form declaration may still require review later.
+    """
     if isinstance(license_data, str):
         return license_data
 
@@ -28,6 +33,12 @@ def _normalize_license(license_data) -> str | None:
 
 
 def _read_dynamic_version(repo_path: Path, pyproject: dict) -> str | None:
+    """Read a setuptools dynamic version without importing the project.
+
+    Importing an unknown repository could execute project code or fail because
+    its dependencies are not installed. Reading a literal assignment keeps
+    metadata extraction isolated from the package runtime.
+    """
     dynamic_config = pyproject.get("tool", {}).get("setuptools", {}).get("dynamic", {})
     version_config = dynamic_config.get("version", {})
 
@@ -69,6 +80,7 @@ def _read_dynamic_version(repo_path: Path, pyproject: dict) -> str | None:
 
 
 def clone_repo(state: AgentState) -> dict:
+    """Clone the repository into the local inspection workspace."""
     repo_url = state["repo_url"]
     repo_name = _repo_name_from_url(repo_url)
 
@@ -85,6 +97,8 @@ def clone_repo(state: AgentState) -> dict:
         }
 
     try:
+        # The current workflow only inspects the checked-out source tree, so
+        # downloading the full Git history would add time without adding evidence.
         subprocess.run(
             ["git", "clone", "--depth", "1", repo_url, str(repo_path)],
             check=True,
@@ -106,6 +120,11 @@ def clone_repo(state: AgentState) -> dict:
 
 
 def inspect_files(state: AgentState) -> dict:
+    """Collect enough repository structure for project detection.
+
+    Only a bounded sample is stored in the graph state so that later nodes,
+    including future LLM nodes, do not receive an unnecessarily large file list.
+    """
     repo_path = Path(state["repo_path"])
 
     files = []
@@ -128,6 +147,8 @@ def inspect_files(state: AgentState) -> dict:
         for path in repo_path.iterdir()
         if path.name not in IGNORED_DIRS
     )
+    # The complete count is retained separately; this sample is only evidence
+    # for lightweight language and build-system detection.
     metadata["sample_files"] = files[:100]
 
     return {
@@ -138,6 +159,11 @@ def inspect_files(state: AgentState) -> dict:
 
 
 def detect_project_type(state: AgentState) -> dict:
+    """Infer the languages and primary build system from repository files.
+
+    This is deliberately a cheap heuristic. A later stage can review mixed or
+    non-standard projects instead of making repository inspection expensive.
+    """
     repo_path = Path(state["repo_path"])
     files = set(state["metadata"].get("sample_files", []))
     top_level_files = set(state["metadata"].get("top_level_files", []))
@@ -179,6 +205,12 @@ def detect_project_type(state: AgentState) -> dict:
 
 
 def extract_metadata(state: AgentState) -> dict:
+    """Extract declared project metadata before making Spack-specific decisions.
+
+    This node records upstream evidence as it appears in ``pyproject.toml``.
+    Naming dependencies, introducing variants, and choosing Spack constraints
+    belong to the recipe-model stage rather than metadata extraction.
+    """
     repo_path = Path(state["repo_path"])
     metadata = dict(state["metadata"])
 
@@ -192,6 +224,8 @@ def extract_metadata(state: AgentState) -> dict:
         build_system = pyproject.get("build-system", {})
         urls = project.get("urls", {})
 
+        # Prefer the standard PEP 621 value. The setuptools-specific lookup is
+        # only a fallback for projects that declare the version as dynamic.
         project_version = project.get("version")
         dynamic_version = _read_dynamic_version(repo_path, pyproject)
 
@@ -220,6 +254,12 @@ def extract_metadata(state: AgentState) -> dict:
     }
 
 def resolve_pypi_source(state: AgentState) -> dict:
+    """Resolve a source distribution and checksum from PyPI.
+
+    The repository metadata chooses the version when it provides one. Falling
+    back to the current PyPI version allows projects with no local version
+    declaration to continue.
+    """
     metadata = dict(state["metadata"])
     project_name = metadata.get("project_name") or state["package_name"]
 
@@ -246,6 +286,8 @@ def resolve_pypi_source(state: AgentState) -> dict:
             "needs_human": True,
         }
 
+    # When the repository declares a version, its checksum must come from that
+    # release rather than from whichever version happens to be latest on PyPI.
     requested_version = metadata.get("project_version")
     pypi_version = pypi_data.get("info", {}).get("version")
     version = requested_version or pypi_version
@@ -265,10 +307,8 @@ def resolve_pypi_source(state: AgentState) -> dict:
     source_url = sdist["url"]
     filename = sdist["filename"]
 
-    # Example PyPI URL:
-    # https://files.pythonhosted.org/packages/source/d/deisa_dask/deisa_dask-0.6.0.tar.gz
-    # Spack pypi path should be:
-    # deisa_dask/deisa_dask-0.6.0.tar.gz
+    # Spack's ``pypi`` attribute stores the project-relative archive path,
+    # not the complete files.pythonhosted.org download URL.
     source_version = str(version)
     filename_stem = filename
 
@@ -298,13 +338,21 @@ def resolve_pypi_source(state: AgentState) -> dict:
     }
 
 def _spack_python_name(name: str) -> str:
+    """Apply Spack's naming convention for Python packages."""
     normalized = name.lower().replace("_", "-")
+
     if normalized.startswith("py-"):
         return normalized
+
     return f"py-{normalized}"
 
-
 def _spack_version_from_requirement(requirement: str) -> str:
+    """Translate the simple Python bounds currently supported by the prototype.
+
+    Python and Spack do not express every version range in exactly the same way.
+    Unsupported operators are therefore left unconstrained rather than being
+    converted into a constraint that may be incorrect.
+    """
     try:
         from packaging.requirements import Requirement
     except ImportError:
@@ -322,10 +370,37 @@ def _spack_version_from_requirement(requirement: str) -> str:
 
     if lower_bound and upper_bound:
         return f"@{lower_bound}:{upper_bound}"
+
     if lower_bound:
         return f"@{lower_bound}:"
+
     return ""
 
+def _dependency_model(
+    requirement: str,
+    dependency_types: tuple[str, ...],
+    when: str | None = None,
+) -> dict:
+    """Convert upstream dependency evidence into a structured Spack decision.
+
+    ``source_requirement`` is retained so that generated constraints can later
+    be traced back to upstream metadata and compared with an existing recipe.
+    """
+    from packaging.requirements import Requirement
+
+    parsed = Requirement(requirement)
+
+    dependency = {
+        "name": _spack_python_name(parsed.name),
+        "version": _spack_version_from_requirement(requirement),
+        "types": list(dependency_types),
+        "source_requirement": requirement,
+    }
+
+    if when is not None:
+        dependency["when"] = when
+
+    return dependency
 
 def _dependency_line(requirement: str) -> str:
     from packaging.requirements import Requirement
@@ -348,6 +423,12 @@ def _build_dependency_line(requirement: str) -> str:
 
 
 def generate_recipe(state: AgentState) -> dict:
+    """Render a Spack recipe from the information currently available.
+
+    Recipe modelling is still partly embedded here. As ``recipe_model`` is
+    introduced, this function should become a renderer and stop inferring
+    variants or dependency policy itself.
+    """
     metadata = state["metadata"]
     package_name = state["package_name"]
     spack_package_name = _spack_python_name(package_name)
@@ -363,6 +444,8 @@ def generate_recipe(state: AgentState) -> dict:
     if requires_python.startswith(">="):
         python_constraint = f"@{requires_python.removeprefix('>=')}:"
     else:
+        # This is a temporary prototype default, not an upstream requirement.
+        # The recipe-model stage should mark this as an assumption or request review.
         python_constraint = "@3.10:"
 
     build_dependencies = [
@@ -379,6 +462,9 @@ def generate_recipe(state: AgentState) -> dict:
     variant_lines = []
     optional_dependency_lines = []
 
+    # An extra named ``mpi`` is treated as packaging intent, but that does not
+    # prove that every package needs a Spack variant. This inference should move
+    # to the recipe model where it can carry confidence and provenance.
     if "mpi" in optional_dependencies:
         variant_lines.append('    variant("mpi", default=False, description="Enable MPI support")')
         optional_dependency_lines.append('    depends_on("mpi", when="+mpi")')
@@ -433,6 +519,12 @@ class {class_name}(PythonPackage):
     }
 
 def route_after_metadata(state: AgentState) -> str:
+    """Choose whether deterministic recipe processing can continue.
+
+    ``unsupported`` is reserved for project types outside the current scope.
+    ``missing_metadata`` means required evidence is absent. ``human_review`` is
+    used when an earlier node found information but could not handle it safely.
+    """
     if state["needs_human"]:
         return "human_review"
 

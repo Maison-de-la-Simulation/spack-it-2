@@ -13,6 +13,7 @@ from state import AgentState
 
 
 def ready_for_recipe(state: AgentState) -> dict:
+    """Mark the state as having enough evidence to start recipe generation."""
     return {
         "current_stage": "ready_for_recipe",
         "status": "ready for recipe generation",
@@ -21,6 +22,7 @@ def ready_for_recipe(state: AgentState) -> dict:
 
 
 def unsupported(state: AgentState) -> dict:
+    """Stop when the project is outside the prototype's supported scope."""
     return {
         "current_stage": "unsupported",
         "status": "unsupported project type",
@@ -29,6 +31,7 @@ def unsupported(state: AgentState) -> dict:
 
 
 def missing_metadata(state: AgentState) -> dict:
+    """Stop when recipe generation would require guessing required metadata."""
     return {
         "current_stage": "missing_metadata",
         "status": "missing or unclear metadata",
@@ -37,6 +40,7 @@ def missing_metadata(state: AgentState) -> dict:
 
 
 def human_review(state: AgentState) -> dict:
+    """Stop when the workflow has detected an ambiguity it cannot resolve safely."""
     return {
         "current_stage": "human_review",
         "status": "human review required",
@@ -45,6 +49,7 @@ def human_review(state: AgentState) -> dict:
 
 
 def build_graph():
+    """Build the workflow while keeping extraction, routing, and rendering separate."""
     workflow = StateGraph(AgentState)
 
     workflow.add_node("clone_repo", clone_repo)
@@ -65,6 +70,8 @@ def build_graph():
     workflow.add_edge("detect_project_type", "extract_metadata")
     workflow.add_edge("extract_metadata", "resolve_pypi_source")
 
+    # Routing happens only after source resolution because a recipe without a
+    # resolved source checksum should not reach generation.
     workflow.add_conditional_edges(
         "resolve_pypi_source",
         route_after_metadata,

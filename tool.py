@@ -6,6 +6,7 @@ from graph import graph
 
 
 def to_spack_python_package_name(package_name: str) -> str:
+    """Normalize an upstream Python project name to its Spack package name."""
     normalized = package_name.lower().replace("_", "-")
     if normalized.startswith("py-"):
         return normalized
@@ -13,6 +14,7 @@ def to_spack_python_package_name(package_name: str) -> str:
 
 
 def main() -> None:
+    """Run the graph and persist its final state for inspection."""
     if len(sys.argv) != 2:
         print("Usage: ./tool.py <github-repo-url>")
         sys.exit(1)
@@ -26,6 +28,7 @@ def main() -> None:
         "languages": [],
         "build_system": None,
         "metadata": {},
+        "recipe_model": None,
         "current_stage": "start",
         "errors": [],
         "score": 0,
@@ -42,6 +45,8 @@ def main() -> None:
     output_dir = Path("outputs") / spack_package_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Persist the full result even when the workflow stops early. Failure states
+    # and extracted evidence will later be inputs to validation and repair.
     output_data = {
         "repo_url": final_state["repo_url"],
         "repo_path": final_state["repo_path"],
@@ -50,6 +55,7 @@ def main() -> None:
         "languages": final_state["languages"],
         "build_system": final_state["build_system"],
         "metadata": final_state["metadata"],
+        "recipe_model": final_state["recipe_model"],
         "current_stage": final_state["current_stage"],
         "status": final_state["status"],
         "score": final_state["score"],
