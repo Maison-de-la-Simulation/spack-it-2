@@ -2,11 +2,13 @@ from langgraph.graph import END, START, StateGraph
 
 from nodes import (
     clone_repo,
+    derive_recipe_model,
     detect_project_type,
     extract_metadata,
     inspect_files,
     resolve_pypi_source,
     route_after_metadata,
+    route_after_recipe_model,
     generate_recipe,
 )
 from state import AgentState
@@ -57,6 +59,7 @@ def build_graph():
     workflow.add_node("detect_project_type", detect_project_type)
     workflow.add_node("extract_metadata", extract_metadata)
     workflow.add_node("resolve_pypi_source", resolve_pypi_source)
+    workflow.add_node("derive_recipe_model", derive_recipe_model)
 
     workflow.add_node("ready_for_recipe", ready_for_recipe)
     workflow.add_node("unsupported", unsupported)
@@ -76,9 +79,18 @@ def build_graph():
         "resolve_pypi_source",
         route_after_metadata,
         {
-            "ready_for_recipe": "ready_for_recipe",
+            "derive_recipe_model": "derive_recipe_model",
             "unsupported": "unsupported",
             "missing_metadata": "missing_metadata",
+            "human_review": "human_review",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "derive_recipe_model",
+        route_after_recipe_model,
+        {
+            "ready_for_recipe": "ready_for_recipe",
             "human_review": "human_review",
         },
     )

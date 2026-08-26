@@ -1,9 +1,11 @@
 import re
 import subprocess
 import tomllib
-import requests
 from pathlib import Path
 from urllib.parse import urlparse
+
+import requests
+from packaging.requirements import InvalidRequirement, Requirement
 
 from state import AgentState
 
@@ -353,28 +355,22 @@ def _spack_version_from_requirement(requirement: str) -> str:
     Unsupported operators are therefore left unconstrained rather than being
     converted into a constraint that may be incorrect.
     """
-    try:
-        from packaging.requirements import Requirement
-    except ImportError:
-        return ""
 
     parsed = Requirement(requirement)
     lower_bound = None
-    upper_bound = None
 
     for specifier in parsed.specifier:
-        if specifier.operator in {">=", "=="}:
-            lower_bound = specifier.version
-        elif specifier.operator == "<":
-            upper_bound = specifier.version
+        if specifier.operator == "==":
+            return f"@={specifier.version}"
 
-    if lower_bound and upper_bound:
-        return f"@{lower_bound}:{upper_bound}"
+        if specifier.operator == ">=":
+            lower_bound = specifier.version
 
     if lower_bound:
         return f"@{lower_bound}:"
 
     return ""
+
 
 def _dependency_model(
     requirement: str,
@@ -386,7 +382,6 @@ def _dependency_model(
     ``source_requirement`` is retained so that generated constraints can later
     be traced back to upstream metadata and compared with an existing recipe.
     """
-    from packaging.requirements import Requirement
 
     parsed = Requirement(requirement)
 
@@ -402,73 +397,175 @@ def _dependency_model(
 
     return dependency
 
-def _dependency_line(requirement: str) -> str:
-    from packaging.requirements import Requirement
 
-    parsed = Requirement(requirement)
-    spack_name = _spack_python_name(parsed.name)
-    version_constraint = _spack_version_from_requirement(requirement)
+def derive_recipe_model(state: AgentState) -> dict:
+    """Build the structured data that generate_recipe will render."""
+    metadata = state["metadata"]
+    package_name = state["package_name"]
 
-    return f'    depends_on("{spack_name}{version_constraint}", type=("build", "run"))'
+    if not package_name:
+        return {
+            "recipe_model": None,
+            "current_stage": "derive_recipe_model",
+            "status": "missing package name",
+            "needs_human": True,
+        }
+
+    if "python" not in state["languages"]:
+        return {
+            "recipe_model": None,
+            "current_stage": "derive_recipe_model",
+            "status": "recipe model currently supports Python projects only",
+            "needs_human": True,
+        }
+
+    required_source_fields = ("pypi_path", "source_version", "source_sha256")
+    missing_source_fields = [
+        field for field in required_source_fields if not metadata.get(field)
+    ]
+
+    if missing_source_fields:
+        return {
+            "recipe_model": None,
+            "current_stage": "derive_recipe_model",
+            "status": "source information incomplete",
+            "errors": state["errors"]
+            + [f"missing source fields: {', '.join(missing_source_fields)}"],
+            "needs_human": True,
+        }
+
+    spack_package_name = _spack_python_name(package_name)
+    class_name = "".join(
+        part.capitalize()
+        for part in spack_package_name.replace("-", "_").split("_")
+    )
+
+    requires_python = metadata.get("requires_python")
+    python_version = ""
+
+    try:
+        if requires_python:
+            python_version = _spack_version_from_requirement(
+                f"python{requires_python}"
+            )
+
+        dependencies = [
+            {
+                "name": "python",
+                "version": python_version,
+                "types": ["build", "run"],
+                "source_requirement": requires_python,
+            }
+        ]
+
+        dependencies.extend(
+            _dependency_model(requirement, ("build",))
+            for requirement in metadata.get("build_requires", [])
+        )
+
+        dependencies.extend(
+            _dependency_model(requirement, ("build", "run"))
+            for requirement in metadata.get("dependencies", [])
+        )
+
+        variants = []
+        optional_dependencies = metadata.get("optional_dependencies", {})
+
+        if "mpi" in optional_dependencies:
+            variants.append(
+                {
+                    "name": "mpi",
+                    "default": False,
+                    "description": "Enable MPI support",
+                    "source": "project.optional-dependencies.mpi",
+                }
+            )
+
+            # For now, an optional group named "mpi" is treated as a Spack variant.
+            # The dependencies themselves still come from the upstream metadata.
+            dependencies.extend(
+                _dependency_model(
+                    requirement,
+                    ("build", "run"),
+                    when="+mpi",
+                )
+                for requirement in optional_dependencies["mpi"]
+            )
+
+    except InvalidRequirement as error:
+        return {
+            "recipe_model": None,
+            "current_stage": "derive_recipe_model",
+            "status": "failed to parse dependency requirement",
+            "errors": state["errors"] + [str(error)],
+            "needs_human": True,
+        }
+
+    recipe_model = {
+        "package_name": spack_package_name,
+        "class_name": class_name,
+        "base_class": "PythonPackage",
+        "description": metadata.get("description") or package_name,
+        "homepage": metadata.get("homepage") or state["repo_url"],
+        "license": metadata.get("license") or "UNKNOWN",
+        "source": {
+            "type": "pypi",
+            "pypi_path": metadata["pypi_path"],
+            "version": str(metadata["source_version"]),
+            "sha256": metadata["source_sha256"],
+        },
+        "dependencies": dependencies,
+        "variants": variants,
+    }
+
+    return {
+        "recipe_model": recipe_model,
+        "current_stage": "derive_recipe_model",
+        "status": "recipe model derived",
+    }
 
 
-def _build_dependency_line(requirement: str) -> str:
-    from packaging.requirements import Requirement
+def _render_dependency(dependency: dict) -> str:
+    spec = f'{dependency["name"]}{dependency["version"]}'
+    dependency_types = dependency["types"]
 
-    parsed = Requirement(requirement)
-    spack_name = _spack_python_name(parsed.name)
-    version_constraint = _spack_version_from_requirement(requirement)
+    if len(dependency_types) == 1:
+        type_value = f'"{dependency_types[0]}"'
+    else:
+        type_value = "(" + ", ".join(
+            f'"{dependency_type}"'
+            for dependency_type in dependency_types
+        ) + ")"
 
-    return f'    depends_on("{spack_name}{version_constraint}", type="build")'
+    arguments = [
+        f'"{spec}"',
+        f"type={type_value}",
+    ]
+
+    if dependency.get("when"):
+        arguments.append(f'when="{dependency["when"]}"')
+
+    return f'    depends_on({", ".join(arguments)})'
 
 
 def generate_recipe(state: AgentState) -> dict:
-    """Render a Spack recipe from the information currently available.
+    """Render package.py from the recipe model."""
+    recipe_model = state["recipe_model"]
 
-    Recipe modelling is still partly embedded here. As ``recipe_model`` is
-    introduced, this function should become a renderer and stop inferring
-    variants or dependency policy itself.
-    """
-    metadata = state["metadata"]
-    package_name = state["package_name"]
-    spack_package_name = _spack_python_name(package_name)
+    if not recipe_model:
+        return {
+            "current_stage": "generate_recipe",
+            "status": "recipe model missing",
+            "needs_human": True,
+        }
 
-    class_name = "".join(part.capitalize() for part in spack_package_name.replace("-", "_").split("_"))
+    spack_package_name = recipe_model["package_name"]
+    spack_package_dir = spack_package_name.replace("-", "_")
+    source = recipe_model["source"]
 
-    output_dir = Path("outputs") / spack_package_name
+    output_dir = Path("outputs") / spack_package_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     recipe_path = output_dir / "package.py"
-
-    requires_python = metadata.get("requires_python", "")
-
-    if requires_python.startswith(">="):
-        python_constraint = f"@{requires_python.removeprefix('>=')}:"
-    else:
-        # This is a temporary prototype default, not an upstream requirement.
-        # The recipe-model stage should mark this as an assumption or request review.
-        python_constraint = "@3.10:"
-
-    build_dependencies = [
-        _build_dependency_line(requirement)
-        for requirement in metadata.get("build_requires", [])
-    ]
-
-    runtime_dependencies = [
-        _dependency_line(requirement)
-        for requirement in metadata.get("dependencies", [])
-    ]
-
-    optional_dependencies = metadata.get("optional_dependencies", {})
-    variant_lines = []
-    optional_dependency_lines = []
-
-    # An extra named ``mpi`` is treated as packaging intent, but that does not
-    # prove that every package needs a Spack variant. This inference should move
-    # to the recipe model where it can carry confidence and provenance.
-    if "mpi" in optional_dependencies:
-        variant_lines.append('    variant("mpi", default=False, description="Enable MPI support")')
-        optional_dependency_lines.append('    depends_on("mpi", when="+mpi")')
-        optional_dependency_lines.append('    depends_on("py-mpi4py", type=("build", "run"), when="+mpi")')
 
     recipe = f'''# Copyright Spack Project Developers. See COPYRIGHT file for details.
 #
@@ -479,44 +576,49 @@ from spack_repo.builtin.build_systems.python import PythonPackage
 from spack.package import *
 
 
-class {class_name}(PythonPackage):
-    """{metadata.get("description") or package_name}."""
+class {recipe_model["class_name"]}({recipe_model["base_class"]}):
+    """{recipe_model["description"]}."""
 
-    homepage = "{metadata.get("homepage") or state["repo_url"]}"
-    pypi = "{metadata["pypi_path"]}"
+    homepage = "{recipe_model["homepage"]}"
+    pypi = "{source["pypi_path"]}"
 
-    license("{metadata.get("license") or "UNKNOWN"}")
-
-    version("{metadata["source_version"]}", sha256="{metadata["source_sha256"]}")
+    license("{recipe_model["license"]}")
+    version("{source["version"]}", sha256="{source["sha256"]}")
 
 '''
 
-    if variant_lines:
-        recipe += "\n".join(variant_lines) + "\n\n"
+    for variant in recipe_model["variants"]:
+        recipe += (
+            f'    variant("{variant["name"]}", '
+            f'default={variant["default"]}, '
+            f'description="{variant["description"]}")\n'
+        )
 
-    recipe += f'    depends_on("python{python_constraint}", type=("build", "run"))\n'
-
-    for line in build_dependencies:
-        recipe += line + "\n"
-
-    recipe += "\n"
-
-    for line in runtime_dependencies:
-        recipe += line + "\n"
-
-    if optional_dependency_lines:
+    if recipe_model["variants"]:
         recipe += "\n"
-        for line in optional_dependency_lines:
-            recipe += line + "\n"
+
+    for dependency in recipe_model["dependencies"]:
+        recipe += _render_dependency(dependency) + "\n"
 
     recipe_path.write_text(recipe, encoding="utf-8")
+
+    metadata = dict(state["metadata"])
+    metadata["generated_recipe_path"] = str(recipe_path)
 
     return {
         "current_stage": "generate_recipe",
         "status": "recipe generated",
         "score": 3,
-        "metadata": metadata | {"generated_recipe_path": str(recipe_path)},
+        "metadata": metadata,
     }
+
+
+def route_after_recipe_model(state: AgentState) -> str:
+    if state["needs_human"] or not state["recipe_model"]:
+        return "human_review"
+
+    return "ready_for_recipe"
+
 
 def route_after_metadata(state: AgentState) -> str:
     """Choose whether deterministic recipe processing can continue.
@@ -540,4 +642,4 @@ def route_after_metadata(state: AgentState) -> str:
     if not state["metadata"].get("source_sha256"):
         return "missing_metadata"
 
-    return "ready_for_recipe"
+    return "derive_recipe_model"

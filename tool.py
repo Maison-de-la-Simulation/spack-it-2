@@ -41,8 +41,9 @@ def main() -> None:
 
     package_name = final_state["package_name"] or "unknown-package"
     spack_package_name = to_spack_python_package_name(package_name)
+    spack_package_dir = spack_package_name.replace("-", "_")
 
-    output_dir = Path("outputs") / spack_package_name
+    output_dir = Path("outputs") / spack_package_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Persist the full result even when the workflow stops early. Failure states
