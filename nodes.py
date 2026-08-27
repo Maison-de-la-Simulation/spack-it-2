@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import requests
 from packaging.requirements import InvalidRequirement, Requirement
 
+from llm import decide_optional_group
 from state import AgentState
 
 
@@ -471,25 +472,65 @@ def derive_recipe_model(state: AgentState) -> dict:
         variants = []
         optional_dependencies = metadata.get("optional_dependencies", {})
 
-        if "mpi" in optional_dependencies:
+        for group_name, requirements in optional_dependencies.items():
+            if group_name == "mpi":
+                create_variant = True
+                confidence = "high"
+                reason = "MPI optional group is handled deterministically"
+                decision_source = "rule"
+            else:
+                try:
+                    decision = decide_optional_group(
+                        package_name=package_name,
+                        group_name=group_name,
+                        requirements=requirements,
+                    )
+                except (RuntimeError, ValueError) as error:
+                    return {
+                        "recipe_model": None,
+                        "current_stage": "derive_recipe_model",
+                        "status": "LLM optional dependency decision failed",
+                        "errors": state["errors"] + [str(error)],
+                        "needs_human": True,
+                    }
+
+                create_variant = decision["create_variant"]
+                confidence = decision["confidence"]
+                reason = decision["reason"]
+                decision_source = decision["decision_source"]
+
+            if confidence != "high":
+                return {
+                    "recipe_model": None,
+                    "current_stage": "derive_recipe_model",
+                    "status": "optional dependency decision needs review",
+                    "errors": state["errors"]
+                    + [f"{group_name}: {reason}"],
+                    "needs_human": True,
+                }
+
+            if not create_variant:
+                continue
+
             variants.append(
                 {
-                    "name": "mpi",
+                    "name": group_name,
                     "default": False,
-                    "description": "Enable MPI support",
-                    "source": "project.optional-dependencies.mpi",
+                    "description": f"Enable {group_name} support",
+                    "source": f"project.optional-dependencies.{group_name}",
+                    "decision_source": decision_source,
+                    "confidence": confidence,
+                    "reason": reason,
                 }
             )
 
-            # For now, an optional group named "mpi" is treated as a Spack variant.
-            # The dependencies themselves still come from the upstream metadata.
             dependencies.extend(
                 _dependency_model(
                     requirement,
                     ("build", "run"),
-                    when="+mpi",
+                    when=f"+{group_name}",
                 )
-                for requirement in optional_dependencies["mpi"]
+                for requirement in requirements
             )
 
     except InvalidRequirement as error:
