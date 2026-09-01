@@ -23,23 +23,11 @@ def main() -> None:
 
     initial_state = {
         "repo_url": repo_url,
-        "repo_path": None,
-        "package_name": None,
-        "languages": [],
-        "build_system": None,
-        "metadata": {},
-        "recipe_model": None,
-        "current_stage": "start",
-        "errors": [],
-        "score": 0,
-        "attempts": 0,
-        "needs_human": False,
-        "status": "started",
     }
 
     final_state = graph.invoke(initial_state)
 
-    package_name = final_state["package_name"] or "unknown-package"
+    package_name = final_state.get("package_name") or "unknown-package"
     spack_package_name = to_spack_python_package_name(package_name)
     spack_package_dir = spack_package_name.replace("-", "_")
 
@@ -49,19 +37,19 @@ def main() -> None:
     # Persist the full result even when the workflow stops early. Failure states
     # and extracted evidence will later be inputs to validation and repair.
     output_data = {
-        "repo_url": final_state["repo_url"],
-        "repo_path": final_state["repo_path"],
-        "package_name": final_state["package_name"],
+        "repo_url": final_state.get("repo_url"),
+        "repo_path": final_state.get("repo_path"),
+        "package_name": final_state.get("package_name"),
         "spack_package_name": spack_package_name,
-        "languages": final_state["languages"],
-        "build_system": final_state["build_system"],
-        "metadata": final_state["metadata"],
-        "recipe_model": final_state["recipe_model"],
-        "current_stage": final_state["current_stage"],
-        "status": final_state["status"],
-        "score": final_state["score"],
-        "needs_human": final_state["needs_human"],
-        "errors": final_state["errors"],
+        "languages": final_state.get("languages", []),
+        "build_system": final_state.get("build_system"),
+        "metadata": final_state.get("metadata", {}),
+        "recipe_model": final_state.get("recipe_model"),
+        "current_stage": final_state.get("current_stage"),
+        "status": final_state.get("status"),
+        "score": final_state.get("score", 0),
+        "needs_human": final_state.get("needs_human", False),
+        "errors": final_state.get("errors", []),
     }
 
     metadata_path = output_dir / "metadata.json"
@@ -69,14 +57,14 @@ def main() -> None:
     with metadata_path.open("w", encoding="utf-8") as file:
         json.dump(output_data, file, indent=2)
 
-    print("Final status:", final_state["status"])
-    print("Current stage:", final_state["current_stage"])
-    print("Package name:", final_state["package_name"])
+    print("Final status:", final_state.get("status"))
+    print("Current stage:", final_state.get("current_stage"))
+    print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
-    print("Languages:", ", ".join(final_state["languages"]) or "unknown")
-    print("Build system:", final_state["build_system"])
-    print("Needs human:", final_state["needs_human"])
-    print("Score:", final_state["score"])
+    print("Languages:", ", ".join(final_state.get("languages", [])) or "unknown")
+    print("Build system:", final_state.get("build_system"))
+    print("Needs human:", final_state.get("needs_human", False))
+    print("Score:", final_state.get("score", 0))
     print("Metadata written to:", metadata_path)
 
 

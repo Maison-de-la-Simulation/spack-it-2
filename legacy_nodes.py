@@ -82,6 +82,31 @@ def _read_dynamic_version(repo_path: Path, pyproject: dict) -> str | None:
     return None
 
 
+def validate_url(state: AgentState) -> dict:
+    """Validate the input GitHub repository URL."""
+    repo_url = state["repo_url"].strip()
+    parsed = urlparse(repo_url)
+
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.netloc.lower() not in {"github.com", "www.github.com"}
+        or len(path_parts) < 2
+    ):
+        return {
+            "current_stage": "validate_url",
+            "status": "invalid",
+            "errors": state["errors"] + ["Invalid GitHub repository URL"],
+        }
+
+    return {
+        "repo_url": repo_url.rstrip("/"),
+        "current_stage": "validate_url",
+        "status": "valid",
+    }
+
+
 def clone_repo(state: AgentState) -> dict:
     """Clone the repository into the local inspection workspace."""
     repo_url = state["repo_url"]
