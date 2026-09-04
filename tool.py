@@ -43,6 +43,7 @@ def main() -> None:
         "spack_package_name": spack_package_name,
         "languages": final_state.get("languages", []),
         "build_system": final_state.get("build_system"),
+        "mode": final_state.get("mode"),
         "metadata": final_state.get("metadata", {}),
         "recipe_model": final_state.get("recipe_model"),
         "current_stage": final_state.get("current_stage"),
@@ -63,6 +64,7 @@ def main() -> None:
     print("Spack package name:", spack_package_name)
     print("Languages:", ", ".join(final_state.get("languages", [])) or "unknown")
     print("Build system:", final_state.get("build_system"))
+    print("Mode:", final_state.get("mode"))
     print("Needs human:", final_state.get("needs_human", False))
     print("Score:", final_state.get("score", 0))
     print("Metadata written to:", metadata_path)

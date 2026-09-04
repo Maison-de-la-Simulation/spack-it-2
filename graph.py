@@ -1,11 +1,33 @@
 from langgraph.graph import END, START, StateGraph
 
-from legacy_nodes import (
-    derive_recipe_model,
+from nodes.metadata_resolution import (
+    check_existing_spack_package,
+    check_metadata,
+    check_pypi_applicability,
     extract_metadata,
-    generate_recipe,
+    metadata_extraction_failed,
+    missing_metadata,
+    pypi_resolution_failed,
+    repository_source_unresolved,
     resolve_pypi_source,
-    route_after_metadata,
+    resolve_repository_source,
+    route_after_metadata_check,
+    route_after_metadata_extraction,
+    route_after_pypi_applicability,
+    route_after_pypi_resolution,
+    route_after_repository_resolution,
+    route_after_spack_package_check,
+)
+
+from nodes.recipe_generation import generate_recipe
+
+from nodes.recipe_model import (
+    check_recipe_inputs,
+    derive_recipe_model,
+    recipe_inputs_missing,
+    recipe_model_ambiguous,
+    recipe_model_failed,
+    route_after_recipe_inputs,
     route_after_recipe_model,
 )
 
@@ -45,15 +67,6 @@ def unsupported(state: AgentState) -> dict:
     }
 
 
-def missing_metadata(state: AgentState) -> dict:
-    """Stop when recipe generation would require guessing required metadata."""
-    return {
-        "current_stage": "missing_metadata",
-        "status": "missing or unclear metadata",
-        "needs_human": True,
-    }
-
-
 def human_review(state: AgentState) -> dict:
     """Stop when the workflow has detected an ambiguity it cannot resolve safely."""
     return {
@@ -81,8 +94,32 @@ def build_graph():
 
     # Section 2
     workflow.add_node("extract_metadata", extract_metadata)
+    workflow.add_node("metadata_extraction_failed", metadata_extraction_failed)
+    workflow.add_node("check_metadata", check_metadata)
+    workflow.add_node("missing_metadata", missing_metadata)
+
+    workflow.add_node(
+        "check_existing_spack_package",
+        check_existing_spack_package,
+    )
+    workflow.add_node(
+        "check_pypi_applicability",
+        check_pypi_applicability,
+    )
     workflow.add_node("resolve_pypi_source", resolve_pypi_source)
+    workflow.add_node("pypi_resolution_failed", pypi_resolution_failed)
+
+    workflow.add_node("resolve_repository_source", resolve_repository_source)
+    workflow.add_node(
+        "repository_source_unresolved",
+        repository_source_unresolved,
+    )
+
     workflow.add_node("derive_recipe_model", derive_recipe_model)
+    workflow.add_node("recipe_model_ambiguous", recipe_model_ambiguous)
+    workflow.add_node("recipe_model_failed", recipe_model_failed)
+    workflow.add_node("check_recipe_inputs", check_recipe_inputs)
+    workflow.add_node("recipe_inputs_missing", recipe_inputs_missing)
 
     # Section 3
     workflow.add_node("ready_for_recipe", ready_for_recipe)
@@ -90,7 +127,6 @@ def build_graph():
 
     # Existing exit nodes
     workflow.add_node("unsupported", unsupported)
-    workflow.add_node("missing_metadata", missing_metadata)
     workflow.add_node("human_review", human_review)
 
     # Section 1: Repository and Project Detection
@@ -140,29 +176,88 @@ def build_graph():
     workflow.add_edge("inspection_failed", END)
     workflow.add_edge("unsupported_project", END)
 
-    workflow.add_edge("extract_metadata", "resolve_pypi_source")
+    # Section 2: Metadata and Source Resolution
 
-    # Routing happens only after source resolution because a recipe without a
-    # resolved source checksum should not reach generation.
     workflow.add_conditional_edges(
-        "resolve_pypi_source",
-        route_after_metadata,
+        "extract_metadata",
+        route_after_metadata_extraction,
         {
-            "derive_recipe_model": "derive_recipe_model",
-            "unsupported": "unsupported",
-            "missing_metadata": "missing_metadata",
-            "human_review": "human_review",
+            "check_metadata": "check_metadata",
+            "metadata_extraction_failed": "metadata_extraction_failed",
         },
     )
+
+    workflow.add_conditional_edges(
+        "check_metadata",
+        route_after_metadata_check,
+        {
+            "check_existing_spack_package": "check_existing_spack_package",
+            "missing_metadata": "missing_metadata",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "check_existing_spack_package",
+        route_after_spack_package_check,
+        {
+            "benchmark": "check_pypi_applicability",
+            "new_package": "check_pypi_applicability",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "check_pypi_applicability",
+        route_after_pypi_applicability,
+        {
+            "resolve_pypi_source": "resolve_pypi_source",
+            "resolve_repository_source": "resolve_repository_source",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "resolve_pypi_source",
+        route_after_pypi_resolution,
+        {
+            "derive_recipe_model": "derive_recipe_model",
+            "pypi_resolution_failed": "pypi_resolution_failed",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "resolve_repository_source",
+        route_after_repository_resolution,
+        {
+            "derive_recipe_model": "derive_recipe_model",
+            "repository_source_unresolved": "repository_source_unresolved",
+        },
+    )
+
+    workflow.add_edge("metadata_extraction_failed", END)
+    workflow.add_edge("pypi_resolution_failed", END)
+    workflow.add_edge("repository_source_unresolved", END)
 
     workflow.add_conditional_edges(
         "derive_recipe_model",
         route_after_recipe_model,
         {
-            "ready_for_recipe": "ready_for_recipe",
-            "human_review": "human_review",
+            "check_recipe_inputs": "check_recipe_inputs",
+            "recipe_model_ambiguous": "recipe_model_ambiguous",
+            "recipe_model_failed": "recipe_model_failed",
         },
     )
+
+    workflow.add_conditional_edges(
+        "check_recipe_inputs",
+        route_after_recipe_inputs,
+        {
+            "ready_for_recipe": "ready_for_recipe",
+            "recipe_inputs_missing": "recipe_inputs_missing",
+        },
+    )
+
+    workflow.add_edge("recipe_model_ambiguous", END)
+    workflow.add_edge("recipe_model_failed", END)
+    workflow.add_edge("recipe_inputs_missing", END)
 
     workflow.add_edge("ready_for_recipe", "generate_recipe")
     workflow.add_edge("generate_recipe", END)
