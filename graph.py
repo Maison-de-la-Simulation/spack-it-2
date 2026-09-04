@@ -49,33 +49,6 @@ from nodes.repository_detection import (
 from state import AgentState
 
 
-def ready_for_recipe(state: AgentState) -> dict:
-    """Mark the state as having enough evidence to start recipe generation."""
-    return {
-        "current_stage": "ready_for_recipe",
-        "status": "ready for recipe generation",
-        "score": 2,
-    }
-
-
-def unsupported(state: AgentState) -> dict:
-    """Stop when the project is outside the prototype's supported scope."""
-    return {
-        "current_stage": "unsupported",
-        "status": "unsupported project type",
-        "needs_human": True,
-    }
-
-
-def human_review(state: AgentState) -> dict:
-    """Stop when the workflow has detected an ambiguity it cannot resolve safely."""
-    return {
-        "current_stage": "human_review",
-        "status": "human review required",
-        "needs_human": True,
-    }
-
-
 def build_graph():
     """Build the workflow while keeping extraction, routing, and rendering separate."""
     workflow = StateGraph(AgentState)
@@ -122,12 +95,7 @@ def build_graph():
     workflow.add_node("recipe_inputs_missing", recipe_inputs_missing)
 
     # Section 3
-    workflow.add_node("ready_for_recipe", ready_for_recipe)
     workflow.add_node("generate_recipe", generate_recipe)
-
-    # Existing exit nodes
-    workflow.add_node("unsupported", unsupported)
-    workflow.add_node("human_review", human_review)
 
     # Section 1: Repository and Project Detection
 
@@ -250,7 +218,7 @@ def build_graph():
         "check_recipe_inputs",
         route_after_recipe_inputs,
         {
-            "ready_for_recipe": "ready_for_recipe",
+            "generate_recipe": "generate_recipe",
             "recipe_inputs_missing": "recipe_inputs_missing",
         },
     )
@@ -259,11 +227,8 @@ def build_graph():
     workflow.add_edge("recipe_model_failed", END)
     workflow.add_edge("recipe_inputs_missing", END)
 
-    workflow.add_edge("ready_for_recipe", "generate_recipe")
     workflow.add_edge("generate_recipe", END)
-    workflow.add_edge("unsupported", END)
     workflow.add_edge("missing_metadata", END)
-    workflow.add_edge("human_review", END)
 
     return workflow.compile()
 
