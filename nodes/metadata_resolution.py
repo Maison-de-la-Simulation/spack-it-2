@@ -1,3 +1,4 @@
+import hashlib
 import subprocess
 import re
 import tomllib
@@ -181,6 +182,14 @@ def resolve_pypi_source(state: AgentState) -> dict:
 
     try:
         response = requests.get(pypi_json_url, timeout=20)
+
+        if response.status_code == 404:
+            return {
+                "metadata": metadata,
+                "current_stage": "resolve_pypi_source",
+                "status": "unavailable",
+            }
+
         response.raise_for_status()
         pypi_data = response.json()
     except (requests.RequestException, ValueError) as error:
@@ -203,12 +212,13 @@ def resolve_pypi_source(state: AgentState) -> dict:
     ]
 
     if not sdists:
+        if version:
+            metadata["source_version"] = str(version)
+
         return {
             "metadata": metadata,
             "current_stage": "resolve_pypi_source",
-            "status": "failed",
-            "errors": state["errors"]
-            + [f"No PyPI source distribution found for version {version}"],
+            "status": "unavailable",
         }
 
     sdist = sdists[0]
@@ -234,6 +244,8 @@ def resolve_pypi_source(state: AgentState) -> dict:
     metadata["source_sha256"] = sdist.get("digests", {}).get("sha256")
     metadata["source_filename"] = filename
     metadata["pypi_path"] = f"{pypi_directory}/{filename}"
+    metadata["source_type"] = "pypi"
+    metadata["source_location"] = metadata["pypi_path"]
 
     return {
         "metadata": metadata,
@@ -249,11 +261,15 @@ def route_after_pypi_resolution(state: AgentState) -> str:
 
     if (
         state["status"] == "resolved"
-        and metadata.get("source_sha256")
-        and metadata.get("pypi_path")
+        and metadata.get("source_type") == "pypi"
+        and metadata.get("source_location")
         and metadata.get("source_version")
+        and metadata.get("source_sha256")
     ):
         return "derive_recipe_model"
+
+    if state["status"] == "unavailable":
+        return "resolve_repository_source"
 
     return "pypi_resolution_failed"
 
@@ -268,10 +284,68 @@ def pypi_resolution_failed(state: AgentState) -> dict:
 
 
 def resolve_repository_source(state: AgentState) -> dict:
-    """Handle repository source resolution when PyPI cannot be used."""
+    """Resolve a source archive from a repository release tag."""
+    metadata = dict(state["metadata"])
+    version = metadata.get("source_version") or metadata.get("project_version")
+
+    if not version:
+        return {
+            "metadata": metadata,
+            "current_stage": "resolve_repository_source",
+            "status": "unresolved",
+            "errors": state["errors"] + ["No version available for repository source lookup"],
+        }
+
+    try:
+        matching_tags = _find_matching_repository_tags(
+            state["repo_url"],
+            str(version),
+        )
+    except RuntimeError as error:
+        return {
+            "metadata": metadata,
+            "current_stage": "resolve_repository_source",
+            "status": "failed",
+            "errors": state["errors"] + [str(error)],
+        }
+
+    if len(matching_tags) != 1:
+        return {
+            "metadata": metadata,
+            "current_stage": "resolve_repository_source",
+            "status": "unresolved",
+            "errors": state["errors"]
+            + [f"Expected one matching repository tag, found {len(matching_tags)}"],
+        }
+
+    tag = matching_tags[0]
+    repository_url = state["repo_url"].rstrip("/").removesuffix(".git")
+    archive_url = f"{repository_url}/archive/refs/tags/{tag}.tar.gz"
+
+    try:
+        response = requests.get(archive_url, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as error:
+        return {
+            "metadata": metadata,
+            "current_stage": "resolve_repository_source",
+            "status": "failed",
+            "errors": state["errors"] + [str(error)],
+        }
+
+    sha256 = hashlib.sha256(response.content).hexdigest()
+
+    metadata["repository_source_tag"] = tag
+    metadata["source_type"] = "url"
+    metadata["source_location"] = archive_url
+    metadata["source_version"] = str(version)
+    metadata["source_sha256"] = sha256
+
     return {
+        "metadata": metadata,
         "current_stage": "resolve_repository_source",
-        "status": "not implemented",
+        "status": "resolved",
+        "score": 2,
     }
 
 
@@ -279,6 +353,9 @@ def route_after_repository_resolution(state: AgentState) -> str:
     """Route after repository source resolution."""
     if state["status"] == "resolved":
         return "derive_recipe_model"
+
+    if state["status"] == "failed":
+        return "repository_resolution_failed"
 
     return "repository_source_unresolved"
 
@@ -288,6 +365,15 @@ def repository_source_unresolved(state: AgentState) -> dict:
     return {
         "current_stage": "repository_source_unresolved",
         "status": "repository source unresolved",
+        "needs_human": True,
+    }
+
+
+def repository_resolution_failed(state: AgentState) -> dict:
+    """Stop when repository source resolution fails."""
+    return {
+        "current_stage": "repository_resolution_failed",
+        "status": "repository source resolution failed",
         "needs_human": True,
     }
 
@@ -355,3 +441,34 @@ def _spack_python_name(name: str) -> str:
         return normalized
 
     return f"py-{normalized}"
+
+
+def _find_matching_repository_tags(repo_url: str, version: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "ls-remote", "--tags", "--refs", repo_url],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Failed to read repository tags")
+
+    expected_tags = {
+        version,
+        f"v{version}",
+        f"release-{version}",
+    }
+
+    matches = []
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+
+        _, ref = line.split(maxsplit=1)
+        tag = ref.removeprefix("refs/tags/")
+
+        if tag in expected_tags:
+            matches.append(tag)
+
+    return matches

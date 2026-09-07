@@ -17,6 +17,16 @@ def generate_recipe(state: AgentState) -> dict:
     spack_package_name = recipe_model["package_name"]
     spack_package_dir = spack_package_name.replace("-", "_")
     source = recipe_model["source"]
+    if source["type"] == "pypi":
+        source_line = f'    pypi = "{source["location"]}"'
+    elif source["type"] == "url":
+        source_line = f'    url = "{source["location"]}"'
+    else:
+        return {
+            "current_stage": "generate_recipe",
+            "status": "unsupported source type",
+            "needs_human": True,
+        }
 
     output_dir = Path("outputs") / spack_package_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -35,7 +45,7 @@ class {recipe_model["class_name"]}({recipe_model["base_class"]}):
     """{recipe_model["description"]}."""
 
     homepage = "{recipe_model["homepage"]}"
-    pypi = "{source["pypi_path"]}"
+{source_line}
 
     license("{recipe_model["license"]}")
     version("{source["version"]}", sha256="{source["sha256"]}")

@@ -8,6 +8,7 @@ from nodes.metadata_resolution import (
     metadata_extraction_failed,
     missing_metadata,
     pypi_resolution_failed,
+    repository_resolution_failed,
     repository_source_unresolved,
     resolve_pypi_source,
     resolve_repository_source,
@@ -86,6 +87,11 @@ def build_graph():
     workflow.add_node(
         "repository_source_unresolved",
         repository_source_unresolved,
+    )
+
+    workflow.add_node(
+        "repository_resolution_failed",
+        repository_resolution_failed,
     )
 
     workflow.add_node("derive_recipe_model", derive_recipe_model)
@@ -187,6 +193,7 @@ def build_graph():
         route_after_pypi_resolution,
         {
             "derive_recipe_model": "derive_recipe_model",
+            "resolve_repository_source": "resolve_repository_source",
             "pypi_resolution_failed": "pypi_resolution_failed",
         },
     )
@@ -197,12 +204,14 @@ def build_graph():
         {
             "derive_recipe_model": "derive_recipe_model",
             "repository_source_unresolved": "repository_source_unresolved",
+            "repository_resolution_failed": "repository_resolution_failed",
         },
     )
 
     workflow.add_edge("metadata_extraction_failed", END)
     workflow.add_edge("pypi_resolution_failed", END)
     workflow.add_edge("repository_source_unresolved", END)
+    workflow.add_edge("repository_resolution_failed", END)
 
     workflow.add_conditional_edges(
         "derive_recipe_model",

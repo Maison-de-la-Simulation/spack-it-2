@@ -25,9 +25,16 @@ def derive_recipe_model(state: AgentState) -> dict:
             "needs_human": True,
         }
 
-    required_source_fields = ("pypi_path", "source_version", "source_sha256")
+    required_source_fields = (
+        "source_type",
+        "source_location",
+        "source_version",
+        "source_sha256",
+    )
+
     missing_source_fields = [
-        field for field in required_source_fields if not metadata.get(field)
+        field for field in required_source_fields
+        if not metadata.get(field)
     ]
 
     if missing_source_fields:
@@ -155,8 +162,8 @@ def derive_recipe_model(state: AgentState) -> dict:
         "homepage": metadata.get("homepage") or state["repo_url"],
         "license": metadata.get("license") or "UNKNOWN",
         "source": {
-            "type": "pypi",
-            "pypi_path": metadata["pypi_path"],
+            "type": metadata["source_type"],
+            "location": metadata["source_location"],
             "version": str(metadata["source_version"]),
             "sha256": metadata["source_sha256"],
         },
@@ -230,7 +237,7 @@ def check_recipe_inputs(state: AgentState) -> dict:
 
     source = recipe_model.get("source", {})
 
-    for field in ("pypi_path", "version", "sha256"):
+    for field in ("type", "location", "version", "sha256"):
         if not source.get(field):
             missing_fields.append(f"source.{field}")
 
