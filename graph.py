@@ -30,6 +30,7 @@ from nodes.recipe_model import (
     recipe_model_failed,
     route_after_recipe_inputs,
     route_after_recipe_model,
+    ready_for_recipe,
 )
 
 from nodes.repository_detection import (
@@ -98,6 +99,7 @@ def build_graph():
     workflow.add_node("recipe_model_ambiguous", recipe_model_ambiguous)
     workflow.add_node("recipe_model_failed", recipe_model_failed)
     workflow.add_node("check_recipe_inputs", check_recipe_inputs)
+    workflow.add_node("ready_for_recipe", ready_for_recipe)
     workflow.add_node("recipe_inputs_missing", recipe_inputs_missing)
 
     # Section 3
@@ -227,7 +229,7 @@ def build_graph():
         "check_recipe_inputs",
         route_after_recipe_inputs,
         {
-            "generate_recipe": "generate_recipe",
+            "ready_for_recipe": "ready_for_recipe",
             "recipe_inputs_missing": "recipe_inputs_missing",
         },
     )
@@ -236,6 +238,7 @@ def build_graph():
     workflow.add_edge("recipe_model_failed", END)
     workflow.add_edge("recipe_inputs_missing", END)
 
+    workflow.add_edge("ready_for_recipe", "generate_recipe")
     workflow.add_edge("generate_recipe", END)
     workflow.add_edge("missing_metadata", END)
 

@@ -258,9 +258,17 @@ def check_recipe_inputs(state: AgentState) -> dict:
 
 def route_after_recipe_inputs(state: AgentState) -> str:
     if state.get("status") == "recipe inputs complete":
-        return "generate_recipe"
+        return "ready_for_recipe"
 
     return "recipe_inputs_missing"
+
+
+def ready_for_recipe(state: AgentState) -> dict:
+    """Mark the recipe inputs as ready for generation."""
+    return {
+        "current_stage": "ready_for_recipe",
+        "status": "ready for recipe generation",
+    }
 
 
 def recipe_inputs_missing(state: AgentState) -> dict:
