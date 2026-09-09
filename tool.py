@@ -48,7 +48,6 @@ def main() -> None:
         "recipe_model": final_state.get("recipe_model"),
         "current_stage": final_state.get("current_stage"),
         "status": final_state.get("status"),
-        "score": final_state.get("score", 0),
         "needs_human": final_state.get("needs_human", False),
         "errors": final_state.get("errors", []),
     }
@@ -66,7 +65,6 @@ def main() -> None:
     print("Build system:", final_state.get("build_system"))
     print("Mode:", final_state.get("mode"))
     print("Needs human:", final_state.get("needs_human", False))
-    print("Score:", final_state.get("score", 0))
     print("Metadata written to:", metadata_path)
 
 

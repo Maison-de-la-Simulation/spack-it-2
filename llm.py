@@ -68,30 +68,11 @@ def call_openrouter(prompt: str) -> str:
     raise RuntimeError(message)
 
 
-NON_VARIANT_GROUPS = {
-    "test",
-    "tests",
-    "dev",
-    "development",
-    "docs",
-    "documentation",
-    "lint",
-    "typing",
-}
-
-
 def decide_optional_group(
     package_name: str,
     group_name: str,
     requirements: list[str],
 ) -> dict:
-    if group_name.lower() in NON_VARIANT_GROUPS:
-        return {
-            "create_variant": False,
-            "confidence": "high",
-            "reason": f"'{group_name}' is a development or testing dependency group",
-            "decision_source": "rule",
-        }
 
     evidence = {
         "package": package_name,

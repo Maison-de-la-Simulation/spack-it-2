@@ -73,7 +73,6 @@ class {recipe_model["class_name"]}({recipe_model["base_class"]}):
     return {
         "current_stage": "generate_recipe",
         "status": "recipe generated",
-        "score": 3,
         "metadata": metadata,
     }
 

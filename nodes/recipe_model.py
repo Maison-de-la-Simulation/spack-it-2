@@ -3,6 +3,19 @@ from packaging.requirements import InvalidRequirement, Requirement
 from llm import decide_optional_group
 from state import AgentState
 
+NON_VARIANT_GROUPS = {
+    "test",
+    "tests",
+    "dev",
+    "development",
+    "docs",
+    "documentation",
+    "lint",
+    "typing",
+    "benchmark",
+    "benchmarks",
+}
+
 
 def derive_recipe_model(state: AgentState) -> dict:
     """Build the structured data that generate_recipe will render."""
@@ -85,7 +98,14 @@ def derive_recipe_model(state: AgentState) -> dict:
         optional_dependencies = metadata.get("optional_dependencies", {})
 
         for group_name, requirements in optional_dependencies.items():
-            if group_name == "mpi":
+            normalized_group = group_name.lower()
+
+            if normalized_group in NON_VARIANT_GROUPS:
+                create_variant = False
+                confidence = "high"
+                reason = f"'{group_name}' is a development or testing dependency group"
+                decision_source = "rule"
+            elif normalized_group == "mpi":
                 create_variant = True
                 confidence = "high"
                 reason = "MPI optional group is handled deterministically"

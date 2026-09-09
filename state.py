@@ -19,7 +19,5 @@ class AgentState(TypedDict):
     recipe_model: dict | None
     current_stage: str
     errors: list[str]
-    score: int
-    attempts: int
     needs_human: bool
     status: str

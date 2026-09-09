@@ -63,7 +63,6 @@ def extract_metadata(state: AgentState) -> dict:
         "metadata": metadata,
         "current_stage": "extract_metadata",
         "status": "metadata extracted",
-        "score": 1,
     }
 
 
@@ -251,7 +250,6 @@ def resolve_pypi_source(state: AgentState) -> dict:
         "metadata": metadata,
         "current_stage": "resolve_pypi_source",
         "status": "resolved",
-        "score": 2,
     }
 
 
@@ -345,7 +343,6 @@ def resolve_repository_source(state: AgentState) -> dict:
         "metadata": metadata,
         "current_stage": "resolve_repository_source",
         "status": "resolved",
-        "score": 2,
     }
 
 

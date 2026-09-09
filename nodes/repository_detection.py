@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,7 +18,7 @@ def validate_url(state: AgentState) -> dict:
     if (
         parsed.scheme not in {"http", "https"}
         or parsed.netloc.lower() not in {"github.com", "www.github.com"}
-        or len(path_parts) < 2
+        or len(path_parts) != 2
     ):
         return {
             "current_stage": "validate_url",
@@ -43,8 +44,6 @@ def initialize_state(state: AgentState) -> dict:
         "recipe_model": None,
         "current_stage": "initialize_state",
         "errors": [],
-        "score": 0,
-        "attempts": 0,
         "needs_human": False,
         "status": "initialized",
     }
@@ -60,14 +59,10 @@ def clone_repo(state: AgentState) -> dict:
 
     repo_path = workspace / repo_name
 
-    if repo_path.exists():
-        return {
-            "repo_path": str(repo_path),
-            "current_stage": "clone_repo",
-            "status": "repo already exists",
-        }
-
     try:
+        if repo_path.exists():
+            shutil.rmtree(repo_path)
+
         subprocess.run(
             ["git", "clone", "--depth", "1", repo_url, str(repo_path)],
             check=True,
@@ -86,6 +81,13 @@ def clone_repo(state: AgentState) -> dict:
             "current_stage": "clone_repo",
             "status": "failed",
             "errors": state["errors"] + [error.stderr],
+        }
+
+    except OSError as error:
+        return {
+            "current_stage": "clone_repo",
+            "status": "failed",
+            "errors": state["errors"] + [str(error)],
         }
 
 
@@ -162,7 +164,7 @@ def detect_project_type(state: AgentState) -> dict:
     elif (repo_path / "meson.build").exists():
         build_system = "meson"
 
-    supported = bool(languages) and set(languages) <= {"python", "c", "c++"}
+    supported = "python" in languages and build_system == "pyproject"
 
     return {
         "languages": languages,
