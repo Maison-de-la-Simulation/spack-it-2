@@ -2,6 +2,7 @@ from langgraph.graph import END, START, StateGraph
 
 from nodes.metadata_resolution import (
     check_existing_spack_package,
+    spack_package_check_failed,
     check_metadata,
     check_pypi_applicability,
     extract_metadata,
@@ -76,6 +77,10 @@ def build_graph():
     workflow.add_node(
         "check_existing_spack_package",
         check_existing_spack_package,
+    )
+    workflow.add_node(
+        "spack_package_check_failed",
+        spack_package_check_failed,
     )
     workflow.add_node(
         "check_pypi_applicability",
@@ -178,6 +183,7 @@ def build_graph():
         {
             "benchmark": "check_pypi_applicability",
             "new_package": "check_pypi_applicability",
+            "spack_package_check_failed": "spack_package_check_failed",
         },
     )
 
@@ -211,6 +217,7 @@ def build_graph():
     )
 
     workflow.add_edge("metadata_extraction_failed", END)
+    workflow.add_edge("spack_package_check_failed", END)
     workflow.add_edge("pypi_resolution_failed", END)
     workflow.add_edge("repository_source_unresolved", END)
     workflow.add_edge("repository_resolution_failed", END)

@@ -120,27 +120,61 @@ def check_existing_spack_package(state: AgentState) -> dict:
     package_name = state["package_name"]
     spack_package_name = _spack_python_name(package_name)
 
-    result = subprocess.run(
-        ["spack", "info", f"builtin.{spack_package_name}"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["spack", "info", f"builtin.{spack_package_name}"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        return {
+            "mode": None,
+            "current_stage": "check_existing_spack_package",
+            "status": "failed",
+            "errors": state["errors"] + [str(error)],
+        }
 
-    mode = "benchmark" if result.returncode == 0 else "new_package"
+    if result.returncode == 0:
+        return {
+            "mode": "benchmark",
+            "current_stage": "check_existing_spack_package",
+            "status": "existing package found",
+        }
+
+    if "not found in repository" in result.stderr.lower():
+        return {
+            "mode": "new_package",
+            "current_stage": "check_existing_spack_package",
+            "status": "package not found",
+        }
 
     return {
-        "mode": mode,
+        "mode": None,
         "current_stage": "check_existing_spack_package",
-        "status": "existing package found" if mode == "benchmark" else "package not found",
+        "status": "failed",
+        "errors": state["errors"]
+        + [result.stderr.strip() or "Spack package check failed"],
     }
 
 
 def route_after_spack_package_check(state: AgentState) -> str:
     """Route according to whether an existing Spack package was found."""
+    if state["status"] == "failed":
+        return "spack_package_check_failed"
+
     if state["mode"] == "benchmark":
         return "benchmark"
 
     return "new_package"
+
+
+def spack_package_check_failed(state: AgentState) -> dict:
+    """Stop when the Spack package lookup fails."""
+    return {
+        "current_stage": "spack_package_check_failed",
+        "status": "Spack package check failed",
+        "needs_human": True,
+    }
 
 
 def check_pypi_applicability(state: AgentState) -> dict:
