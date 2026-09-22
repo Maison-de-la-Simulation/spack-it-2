@@ -235,9 +235,14 @@ def resolve_pypi_source(state: AgentState) -> dict:
 
     requested_version = metadata.get("project_version")
     pypi_version = pypi_data.get("info", {}).get("version")
-    version = requested_version or pypi_version
+    releases = pypi_data.get("releases", {})
 
-    release_files = pypi_data.get("releases", {}).get(version, [])
+    if requested_version and requested_version in releases:
+        version = requested_version
+    else:
+        version = pypi_version
+
+    release_files = releases.get(version, [])
     sdists = [
         file
         for file in release_files

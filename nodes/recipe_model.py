@@ -117,14 +117,8 @@ def derive_recipe_model(state: AgentState) -> dict:
                         group_name=group_name,
                         requirements=requirements,
                     )
-                except (RuntimeError, ValueError) as error:
-                    return {
-                        "recipe_model": None,
-                        "current_stage": "derive_recipe_model",
-                        "status": "LLM optional dependency decision failed",
-                        "errors": state["errors"] + [str(error)],
-                        "needs_human": True,
-                    }
+                except (RuntimeError, ValueError):
+                    continue
 
                 create_variant = decision["create_variant"]
                 confidence = decision["confidence"]
