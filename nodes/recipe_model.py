@@ -116,9 +116,16 @@ def derive_recipe_model(state: AgentState) -> dict:
                         package_name=package_name,
                         group_name=group_name,
                         requirements=requirements,
+                        selected_llm=state.get("selected_llm", "mdls"),
                     )
-                except (RuntimeError, ValueError):
-                    continue
+                except (RuntimeError, ValueError) as error:
+                    return {
+                        "recipe_model": None,
+                        "current_stage": "derive_recipe_model",
+                        "status": "LLM optional dependency decision failed",
+                        "errors": state["errors"] + [str(error)],
+                        "needs_human": True,
+                    }
 
                 create_variant = decision["create_variant"]
                 confidence = decision["confidence"]
@@ -195,7 +202,7 @@ def derive_recipe_model(state: AgentState) -> dict:
 def route_after_recipe_model(state: AgentState) -> str:
     """Route after recipe model derivation."""
     if state.get("recipe_model"):
-        return "check_recipe_inputs"
+        return "check_missing_dependencies"
 
     if state.get("status") == "optional dependency decision needs review":
         return "recipe_model_ambiguous"

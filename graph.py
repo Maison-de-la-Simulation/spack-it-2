@@ -21,6 +21,21 @@ from nodes.metadata_resolution import (
     route_after_spack_package_check,
 )
 
+from nodes.dependency_resolution import (
+    check_missing_dependencies,
+    check_recursion_guard,
+    dependency_cycle_detected,
+    dependency_source_unresolved,
+    package_dependency_recursively,
+    recursive_dependency_failed,
+    recursion_depth_reached,
+    resolve_dependency_source,
+    route_after_dependency_check,
+    route_after_dependency_source,
+    route_after_recursive_dependency,
+    route_after_recursion_guard,
+)
+
 from nodes.recipe_generation import generate_recipe
 
 from nodes.recipe_model import (
@@ -103,6 +118,24 @@ def build_graph():
     workflow.add_node("derive_recipe_model", derive_recipe_model)
     workflow.add_node("recipe_model_ambiguous", recipe_model_ambiguous)
     workflow.add_node("recipe_model_failed", recipe_model_failed)
+    workflow.add_node("check_missing_dependencies", check_missing_dependencies)
+    workflow.add_node("resolve_dependency_source", resolve_dependency_source)
+    workflow.add_node("check_recursion_guard", check_recursion_guard)
+    workflow.add_node(
+        "package_dependency_recursively",
+        package_dependency_recursively,
+    )
+
+    workflow.add_node(
+        "dependency_source_unresolved",
+        dependency_source_unresolved,
+    )
+    workflow.add_node(
+        "recursive_dependency_failed",
+        recursive_dependency_failed,
+    )
+    workflow.add_node("recursion_depth_reached", recursion_depth_reached)
+    workflow.add_node("dependency_cycle_detected", dependency_cycle_detected)
     workflow.add_node("check_recipe_inputs", check_recipe_inputs)
     workflow.add_node("ready_for_recipe", ready_for_recipe)
     workflow.add_node("recipe_inputs_missing", recipe_inputs_missing)
@@ -226,9 +259,46 @@ def build_graph():
         "derive_recipe_model",
         route_after_recipe_model,
         {
-            "check_recipe_inputs": "check_recipe_inputs",
+            "check_missing_dependencies": "check_missing_dependencies",
             "recipe_model_ambiguous": "recipe_model_ambiguous",
             "recipe_model_failed": "recipe_model_failed",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "check_missing_dependencies",
+        route_after_dependency_check,
+        {
+            "resolve_dependency_source": "resolve_dependency_source",
+            "check_recipe_inputs": "check_recipe_inputs",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "resolve_dependency_source",
+        route_after_dependency_source,
+        {
+            "check_recursion_guard": "check_recursion_guard",
+            "dependency_source_unresolved": "dependency_source_unresolved",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "check_recursion_guard",
+        route_after_recursion_guard,
+        {
+            "package_dependency_recursively": "package_dependency_recursively",
+            "recursion_depth_reached": "recursion_depth_reached",
+            "dependency_cycle_detected": "dependency_cycle_detected",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "package_dependency_recursively",
+        route_after_recursive_dependency,
+        {
+            "check_missing_dependencies": "check_missing_dependencies",
+            "recursive_dependency_failed": "recursive_dependency_failed",
         },
     )
 
@@ -244,6 +314,11 @@ def build_graph():
     workflow.add_edge("recipe_model_ambiguous", END)
     workflow.add_edge("recipe_model_failed", END)
     workflow.add_edge("recipe_inputs_missing", END)
+
+    workflow.add_edge("dependency_source_unresolved", END)
+    workflow.add_edge("recursive_dependency_failed", END)
+    workflow.add_edge("recursion_depth_reached", END)
+    workflow.add_edge("dependency_cycle_detected", END)
 
     workflow.add_edge("ready_for_recipe", "generate_recipe")
     workflow.add_edge("generate_recipe", END)

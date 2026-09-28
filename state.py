@@ -21,3 +21,10 @@ class AgentState(TypedDict):
     errors: list[str]
     needs_human: bool
     status: str
+    remaining_depth: int
+    dependency_path: list[str]
+    processed_packages: list[str]
+    missing_dependencies: list[str]
+    current_dependency: str | None
+    dependency_repo_url: str | None
+    selected_llm: str

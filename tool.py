@@ -1,10 +1,6 @@
 import argparse
 import json
-import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
-
-import requests
 
 from graph import graph
 
@@ -53,135 +49,23 @@ def write_output(final_state: dict) -> None:
     print("Metadata written to:", metadata_path)
 
 
-def spack_package_exists(package_name: str) -> bool:
-    result = subprocess.run(
-        ["spack", "info", f"builtin.{package_name}"],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-def check_missing_dependencies(final_state: dict) -> list[str]:
-    recipe_model = final_state.get("recipe_model") or {}
-    dependencies = recipe_model.get("dependencies", [])
-
-    missing = []
-
-    for dependency in dependencies:
-        name = dependency.get("name")
-
-        if not name or name == "python":
-            continue
-
-        if not spack_package_exists(name):
-            missing.append(name)
-
-    return sorted(set(missing))
-
-
-def resolve_dependency_source(spack_name: str) -> str | None:
-    pypi_name = spack_name.removeprefix("py-")
-
-    try:
-        response = requests.get(
-            f"https://pypi.org/pypi/{pypi_name}/json",
-            timeout=20,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError):
-        return None
-
-    info = data.get("info", {})
-    project_urls = info.get("project_urls") or {}
-
-    candidates = list(project_urls.values())
-
-    if info.get("home_page"):
-        candidates.append(info["home_page"])
-
-    for candidate in candidates:
-        if not isinstance(candidate, str):
-            continue
-
-        parsed = urlparse(candidate)
-
-        if parsed.netloc.lower() not in {"github.com", "www.github.com"}:
-            continue
-
-        parts = [part for part in parsed.path.split("/") if part]
-
-        if len(parts) < 2:
-            continue
-
-        return f"https://github.com/{parts[0]}/{parts[1].removesuffix('.git')}"
-
-    return None
-
-
 def run_package(
     repo_url: str,
     remaining_depth: int,
-    processed_packages: set[str],
-    dependency_path: list[str],
+    selected_llm: str,
 ) -> bool:
-    final_state = graph.invoke({"repo_url": repo_url})
+    final_state = graph.invoke(
+        {
+            "repo_url": repo_url,
+            "remaining_depth": remaining_depth,
+            "dependency_path": [],
+            "processed_packages": [],
+            "selected_llm": selected_llm,
+        }
+    )
     write_output(final_state)
 
-    if final_state.get("status") != "recipe generated":
-        return False
-
-    package_name = final_state.get("package_name")
-
-    if not package_name:
-        return False
-
-    spack_package_name = to_spack_python_package_name(package_name)
-
-    if spack_package_name in dependency_path:
-        print("Dependency cycle detected:", " -> ".join(
-            dependency_path + [spack_package_name]
-        ))
-        return False
-
-    processed_packages.add(spack_package_name)
-
-    if remaining_depth <= 0:
-        return True
-
-    missing_dependencies = check_missing_dependencies(final_state)
-
-    for dependency_name in missing_dependencies:
-        if dependency_name in processed_packages:
-            continue
-
-        dependency_repo = resolve_dependency_source(dependency_name)
-
-        if not dependency_repo:
-            print(
-                f"Could not resolve upstream repository for "
-                f"{dependency_name}"
-            )
-            return False
-
-        print()
-        print("Missing dependency:", dependency_name)
-        print("Repository:", dependency_repo)
-        print("Remaining depth:", remaining_depth - 1)
-
-        success = run_package(
-            dependency_repo,
-            remaining_depth - 1,
-            processed_packages,
-            dependency_path + [spack_package_name],
-        )
-
-        if not success:
-            print("Failed to package dependency:", dependency_name)
-            return False
-
-    return True
+    return final_state.get("status") == "recipe generated"
 
 
 def main() -> None:
@@ -193,6 +77,12 @@ def main() -> None:
         default=0,
         help="Maximum recursive dependency depth",
     )
+    parser.add_argument(
+        "--select-llm",
+        choices=["mdls", "open-router"],
+        default="mdls",
+        help="Select the LLM to use",
+    )
     parser.add_argument("repo_url")
 
     args = parser.parse_args()
@@ -203,8 +93,7 @@ def main() -> None:
     success = run_package(
         repo_url=args.repo_url,
         remaining_depth=args.depth,
-        processed_packages=set(),
-        dependency_path=[],
+        selected_llm=args.select_llm,
     )
 
     if not success:
