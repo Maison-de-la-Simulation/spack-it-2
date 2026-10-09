@@ -2,6 +2,14 @@
 
 A LangGraph-based prototype for generating Spack package recipes from a source repository URL.
 
+## Workflow Diagram
+
+[View the workflow diagram](https://docs.google.com/drawings/d/1BurF_v5SKvKO0aYVeZHtiYBdBuWPS7Rni838SMr0aoE/edit)
+
+## Specifications Document
+
+[View the specifications document](https://docs.google.com/document/d/1PxDQilBn0VYcY1gO4rjn9klJaxrzWA3Mfjoo3E9CLYg/edit) 
+
 ## Overview
 
 The project analyses a software repository, extracts its package metadata, resolves its source archive, and generates an initial Spack `package.py` recipe.
