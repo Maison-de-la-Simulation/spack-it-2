@@ -11,6 +11,7 @@
 #   2  sandbox setup or usage failure
 #   10 spack audit packages reported issues
 #   20 spack concretize failed
+#   30 spack install failed
 
 set -eu
 
@@ -18,8 +19,8 @@ GENERATED_REPO=/work/generated/spack_repo/generated
 SPEC="${1:-}"
 MAX_TIER="${2:-concretize}"
 
-if [ -z "$SPEC" ] || [ "$MAX_TIER" != "audit" ] && [ "$MAX_TIER" != "concretize" ]; then
-    echo "usage: validate.sh <root-spec> [audit|concretize]" >&2
+if [ -z "$SPEC" ] || { [ "$MAX_TIER" != "audit" ] && [ "$MAX_TIER" != "concretize" ] && [ "$MAX_TIER" != "install" ]; }; then
+    echo "usage: validate.sh <root-spec> [audit|concretize|install]" >&2
     exit 2
 fi
 
@@ -72,6 +73,16 @@ echo "=== tier: spack concretize ==="
 if ! concretize_spec; then
     echo "validation failed: concretization failed" >&2
     exit 20
+fi
+
+if [ "$MAX_TIER" = "concretize" ]; then
+    exit 0
+fi
+
+echo "=== tier: spack install ==="
+if ! spack -e validation install --fail-fast; then
+    echo "validation failed: installation failed" >&2
+    exit 30
 fi
 
 exit 0

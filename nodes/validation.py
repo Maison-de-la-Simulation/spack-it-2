@@ -1,13 +1,4 @@
 """Validate generated recipes against a pinned upstream Spack inside a container.
-
-The validation sandbox reproduces the pattern of
-``my-spack-envs/containerized/ubuntu2404.pdi-tutorial``: the recipes written
-under ``outputs/`` are staged into a small Spack repository (the
-``custom_packages/`` equivalent), which is then mounted read-only into a
-throwaway container based on a pinned official Spack image. That image bundles
-the upstream ``spack-packages`` snapshot, so every run validates against a
-fresh upstream, and ``--rm`` keeps all side effects (installs, caches,
-configuration) inside the sandbox.
 """
 
 import shutil
@@ -20,15 +11,17 @@ VALIDATION_IMAGE = "spack-it-2-validator"
 VALIDATION_DIR = Path("validation")
 GENERATED_NAMESPACE = "generated"
 
-# Highest tier executed by validation/validate.sh. Tier 3 (spack install) is
-# deliberately not wired yet.
-MAX_TIER = "concretize"
+# Highest tier executed by validation/validate.sh.
+MAX_TIER = "install"
+SANDBOX_TIMEOUT = 1800
+INSTALL_TIMEOUT = 7200
 
 # Exit codes returned by validation/validate.sh.
 EXIT_VALIDATED = 0
 EXIT_SANDBOX_FAILURE = 2
 EXIT_AUDIT_FAILED = 10
 EXIT_CONCRETIZE_FAILED = 20
+EXIT_INSTALL_FAILED = 30
 
 # Package API version of the generated repository. It must be supported by the
 # Spack version pinned in validation/Dockerfile.
@@ -167,6 +160,11 @@ def _run_validation_container(
     """Run the tiered validation inside a throwaway container."""
     generated_dir = (VALIDATION_DIR / "generated").resolve()
 
+    # The install tier fetches sources, so it needs network access; the
+    # cheaper tiers stay hermetic.
+    network = [] if MAX_TIER == "install" else ["--network", "none"]
+    timeout = INSTALL_TIMEOUT if MAX_TIER == "install" else SANDBOX_TIMEOUT
+
     try:
         _build_validation_image()
         return subprocess.run(
@@ -174,8 +172,7 @@ def _run_validation_container(
                 "docker",
                 "run",
                 "--rm",
-                "--network",
-                "none",
+                *network,
                 "-v",
                 f"{generated_dir}:/work/generated:ro",
                 VALIDATION_IMAGE,
@@ -184,7 +181,7 @@ def _run_validation_container(
             ],
             capture_output=True,
             text=True,
-            timeout=1800,
+            timeout=timeout,
         )
     except FileNotFoundError as error:
         raise _ValidationError(
@@ -220,21 +217,49 @@ def _validation_status(exit_code: int) -> str:
     if exit_code == EXIT_CONCRETIZE_FAILED:
         return "concretization failed"
 
+    if exit_code == EXIT_INSTALL_FAILED:
+        return "installation failed"
+
     return "validation sandbox failure"
 
 
 def _tier_results(exit_code: int) -> dict:
     """Report the outcome of each executed tier."""
     if exit_code == EXIT_VALIDATED:
-        return {"audit": "passed", "concretize": "passed"}
+        results = {"audit": "passed", "concretize": "passed", "install": "passed"}
 
-    if exit_code == EXIT_AUDIT_FAILED:
-        return {"audit": "failed", "concretize": "skipped"}
+        if MAX_TIER == "concretize":
+            results["install"] = "skipped"
+        elif MAX_TIER == "audit":
+            results["concretize"] = "skipped"
+            results["install"] = "skipped"
 
-    if exit_code == EXIT_CONCRETIZE_FAILED:
-        return {"audit": "passed", "concretize": "failed"}
+        return results
 
-    if exit_code == EXIT_SANDBOX_FAILURE:
-        return {"audit": "sandbox failure", "concretize": "skipped"}
+    outcomes = {
+        EXIT_AUDIT_FAILED: {
+            "audit": "failed",
+            "concretize": "skipped",
+            "install": "skipped",
+        },
+        EXIT_CONCRETIZE_FAILED: {
+            "audit": "passed",
+            "concretize": "failed",
+            "install": "skipped",
+        },
+        EXIT_INSTALL_FAILED: {
+            "audit": "passed",
+            "concretize": "passed",
+            "install": "failed",
+        },
+    }
 
-    return {"audit": "sandbox failure", "concretize": "sandbox failure"}
+    if exit_code in outcomes:
+        return outcomes[exit_code]
+
+    # Unexpected codes come from the sandbox itself rather than from a tier.
+    return {
+        "audit": "sandbox failure",
+        "concretize": "sandbox failure",
+        "install": "sandbox failure",
+    }
