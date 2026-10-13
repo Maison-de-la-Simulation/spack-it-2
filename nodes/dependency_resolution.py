@@ -3,12 +3,13 @@ from urllib.parse import urlparse
 
 import requests
 
+from spack_cli import spack_executable
 from state import AgentState
 
 
 def spack_package_exists(package_name: str) -> bool:
     result = subprocess.run(
-        ["spack", "info", f"builtin.{package_name}"],
+        [spack_executable(), "info", f"builtin.{package_name}"],
         capture_output=True,
         text=True,
     )

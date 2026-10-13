@@ -5,6 +5,7 @@ import tomllib
 import requests
 from pathlib import Path
 
+from spack_cli import SpackNotFoundError, spack_executable
 from state import AgentState
 
 
@@ -122,11 +123,11 @@ def check_existing_spack_package(state: AgentState) -> dict:
 
     try:
         result = subprocess.run(
-            ["spack", "info", f"builtin.{spack_package_name}"],
+            [spack_executable(), "info", f"builtin.{spack_package_name}"],
             capture_output=True,
             text=True,
         )
-    except OSError as error:
+    except (SpackNotFoundError, OSError) as error:
         return {
             "mode": None,
             "current_stage": "check_existing_spack_package",
