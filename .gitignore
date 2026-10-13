@@ -8,6 +8,7 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+.flox/
 
 # Secrets and local configuration
 .env
@@ -21,6 +22,9 @@ venv/
 workspace/
 outputs/
 *.log
+
+# Staged Spack repository used by the validation sandbox
+validation/generated/
 
 # Generated benchmark outputs
 benchmarks/**/rule-based/

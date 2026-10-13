@@ -64,6 +64,12 @@ from nodes.repository_detection import (
     unsupported_project,
     validate_url,
 )
+from nodes.validation import (
+    route_after_recipe_generation,
+    route_after_validation,
+    validate_recipe,
+    validation_failed,
+)
 from state import AgentState
 
 
@@ -142,6 +148,10 @@ def build_graph():
 
     # Section 3
     workflow.add_node("generate_recipe", generate_recipe)
+
+    # Section 4: Recipe Validation
+    workflow.add_node("validate_recipe", validate_recipe)
+    workflow.add_node("validation_failed", validation_failed)
 
     # Section 1: Repository and Project Detection
 
@@ -321,7 +331,28 @@ def build_graph():
     workflow.add_edge("dependency_cycle_detected", END)
 
     workflow.add_edge("ready_for_recipe", "generate_recipe")
-    workflow.add_edge("generate_recipe", END)
+
+    # Section 4: Recipe Validation. Only the top-level run validates; child
+    # runs of the recursive dependency workflow end at recipe generation.
+    workflow.add_conditional_edges(
+        "generate_recipe",
+        route_after_recipe_generation,
+        {
+            "validate_recipe": "validate_recipe",
+            "done": END,
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "validate_recipe",
+        route_after_validation,
+        {
+            "validated": END,
+            "validation_failed": "validation_failed",
+        },
+    )
+
+    workflow.add_edge("validation_failed", END)
     workflow.add_edge("missing_metadata", END)
 
     return workflow.compile()

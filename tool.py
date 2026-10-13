@@ -34,6 +34,7 @@ def write_output(final_state: dict) -> None:
         "status": final_state.get("status"),
         "needs_human": final_state.get("needs_human", False),
         "errors": final_state.get("errors", []),
+        "validation": final_state.get("validation"),
     }
 
     metadata_path = output_dir / "metadata.json"
@@ -46,6 +47,12 @@ def write_output(final_state: dict) -> None:
     print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
     print("Mode:", final_state.get("mode"))
+
+    validation = final_state.get("validation")
+
+    if validation:
+        print("Validation tiers:", validation.get("tiers"))
+
     print("Metadata written to:", metadata_path)
 
 
@@ -65,7 +72,7 @@ def run_package(
     )
     write_output(final_state)
 
-    return final_state.get("status") == "recipe generated"
+    return final_state.get("status") == "recipe validated"
 
 
 def main() -> None:

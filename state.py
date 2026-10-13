@@ -28,3 +28,4 @@ class AgentState(TypedDict):
     current_dependency: str | None
     dependency_repo_url: str | None
     selected_llm: str
+    validation: dict
