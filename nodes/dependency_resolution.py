@@ -1,5 +1,5 @@
-import subprocess
 from urllib.parse import urlparse
+from spack_cli import run_spack_info
 
 import requests
 
@@ -7,13 +7,18 @@ from state import AgentState
 
 
 def spack_package_exists(package_name: str) -> bool:
-    result = subprocess.run(
-        ["spack", "info", f"builtin.{package_name}"],
-        capture_output=True,
-        text=True,
+    result = run_spack_info(package_name)
+
+    if result.returncode == 0:
+        return True
+
+    if "not found in repository" in result.stderr.lower():
+        return False
+
+    raise OSError(
+        result.stderr.strip() or "Spack dependency check failed"
     )
     return result.returncode == 0
-
 
 def check_missing_dependencies(state: AgentState) -> dict:
     recipe_model = state.get("recipe_model") or {}

@@ -6,6 +6,7 @@ import requests
 from pathlib import Path
 
 from state import AgentState
+from spack_cli import run_spack_info
 
 
 def extract_metadata(state: AgentState) -> dict:
@@ -126,11 +127,8 @@ def check_existing_spack_package(state: AgentState) -> dict:
     spack_package_name = _spack_python_name(package_name)
 
     try:
-        result = subprocess.run(
-            ["spack", "info", f"builtin.{spack_package_name}"],
-            capture_output=True,
-            text=True,
-        )
+        result = run_spack_info(spack_package_name)
+
     except OSError as error:
         return {
             "mode": None,
