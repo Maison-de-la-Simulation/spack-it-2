@@ -26,6 +26,7 @@ def derive_recipe_model(state: AgentState) -> dict:
         return {
             "recipe_model": None,
             "current_stage": "derive_recipe_model",
+            "node_history": state.get("node_history", []) + ["derive_recipe_model"],
             "status": "missing package name",
             "needs_human": True,
         }
@@ -34,6 +35,7 @@ def derive_recipe_model(state: AgentState) -> dict:
         return {
             "recipe_model": None,
             "current_stage": "derive_recipe_model",
+            "node_history": state.get("node_history", []) + ["derive_recipe_model"],
             "status": "recipe model currently supports Python projects only",
             "needs_human": True,
         }
@@ -54,6 +56,7 @@ def derive_recipe_model(state: AgentState) -> dict:
         return {
             "recipe_model": None,
             "current_stage": "derive_recipe_model",
+            "node_history": state.get("node_history", []) + ["derive_recipe_model"],
             "status": "source information incomplete",
             "errors": state["errors"]
             + [f"missing source fields: {', '.join(missing_source_fields)}"],
@@ -121,6 +124,7 @@ def derive_recipe_model(state: AgentState) -> dict:
                 except (RuntimeError, ValueError) as error:
                     return {
                         "recipe_model": None,
+                        "node_history": state.get("node_history", []) + ["derive_recipe_model"],
                         "current_stage": "derive_recipe_model",
                         "status": "LLM optional dependency decision failed",
                         "errors": state["errors"] + [str(error)],
@@ -136,6 +140,7 @@ def derive_recipe_model(state: AgentState) -> dict:
                 return {
                     "recipe_model": None,
                     "current_stage": "derive_recipe_model",
+                    "node_history": state.get("node_history", []) + ["derive_recipe_model"],
                     "status": "optional dependency decision needs review",
                     "errors": state["errors"]
                     + [f"{group_name}: {reason}"],
@@ -170,6 +175,7 @@ def derive_recipe_model(state: AgentState) -> dict:
         return {
             "recipe_model": None,
             "current_stage": "derive_recipe_model",
+            "node_history": state.get("node_history", []) + ["derive_recipe_model"],
             "status": "failed to parse dependency requirement",
             "errors": state["errors"] + [str(error)],
             "needs_human": True,
@@ -195,6 +201,7 @@ def derive_recipe_model(state: AgentState) -> dict:
     return {
         "recipe_model": recipe_model,
         "current_stage": "derive_recipe_model",
+        "node_history": state.get("node_history", []) + ["derive_recipe_model"],
         "status": "recipe model derived",
     }
 
@@ -214,6 +221,7 @@ def recipe_model_ambiguous(state: AgentState) -> dict:
     """Stop when a recipe decision is not confident enough."""
     return {
         "current_stage": "recipe_model_ambiguous",
+        "node_history": state.get("node_history", []) + ["recipe_model_ambiguous"],
         "status": "recipe model needs review",
         "needs_human": True,
     }
@@ -223,6 +231,7 @@ def recipe_model_failed(state: AgentState) -> dict:
     """Stop when the recipe model cannot be constructed."""
     return {
         "current_stage": "recipe_model_failed",
+        "node_history": state.get("node_history", []) + ["recipe_model_failed"],
         "status": "recipe model derivation failed",
         "needs_human": True,
     }
@@ -235,6 +244,7 @@ def check_recipe_inputs(state: AgentState) -> dict:
     if not recipe_model:
         return {
             "current_stage": "check_recipe_inputs",
+            "node_history": state.get("node_history", []) + ["check_recipe_inputs"],
             "status": "recipe inputs incomplete",
             "needs_human": True,
         }
@@ -265,6 +275,7 @@ def check_recipe_inputs(state: AgentState) -> dict:
     if missing_fields:
         return {
             "current_stage": "check_recipe_inputs",
+            "node_history": state.get("node_history", []) + ["check_recipe_inputs"],
             "status": "recipe inputs incomplete",
             "errors": state["errors"]
             + [f"missing recipe inputs: {', '.join(missing_fields)}"],
@@ -273,6 +284,7 @@ def check_recipe_inputs(state: AgentState) -> dict:
 
     return {
         "current_stage": "check_recipe_inputs",
+        "node_history": state.get("node_history", []) + ["check_recipe_inputs"],
         "status": "recipe inputs complete",
     }
 
@@ -288,6 +300,7 @@ def ready_for_recipe(state: AgentState) -> dict:
     """Mark the recipe inputs as ready for generation."""
     return {
         "current_stage": "ready_for_recipe",
+        "node_history": state.get("node_history", []) + ["ready_for_recipe"],
         "status": "ready for recipe generation",
     }
 
@@ -295,6 +308,7 @@ def ready_for_recipe(state: AgentState) -> dict:
 def recipe_inputs_missing(state: AgentState) -> dict:
     return {
         "current_stage": "recipe_inputs_missing",
+        "node_history": state.get("node_history", []) + ["recipe_inputs_missing"],
         "status": "required recipe inputs missing",
         "needs_human": True,
     }

@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 from pathlib import Path
 
 from graph import graph
@@ -30,7 +31,10 @@ def write_output(final_state: dict) -> None:
         "mode": final_state.get("mode"),
         "metadata": final_state.get("metadata", {}),
         "recipe_model": final_state.get("recipe_model"),
+        "validation_result": final_state.get("validation_result"),
+        "quality_score": final_state.get("quality_score"),
         "current_stage": final_state.get("current_stage"),
+        "node_history": final_state.get("node_history", []),
         "status": final_state.get("status"),
         "needs_human": final_state.get("needs_human", False),
         "errors": final_state.get("errors", []),
@@ -43,9 +47,12 @@ def write_output(final_state: dict) -> None:
 
     print("Final status:", final_state.get("status"))
     print("Current stage:", final_state.get("current_stage"))
+    print("Node history:", final_state.get("node_history", []))
     print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
     print("Mode:", final_state.get("mode"))
+    print("Validation result (placeholder):", final_state.get("validation_result"))
+    print("Quality score (%) (placeholder):", final_state.get("quality_score"))
     print("Metadata written to:", metadata_path)
 
 
@@ -65,7 +72,7 @@ def run_package(
     )
     write_output(final_state)
 
-    return final_state.get("status") == "recipe generated"
+    return final_state.get("status") == "recipe valid"
 
 
 def main() -> None:
@@ -89,6 +96,12 @@ def main() -> None:
 
     if args.depth < 0:
         parser.error("-L must be zero or greater")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     success = run_package(
         repo_url=args.repo_url,

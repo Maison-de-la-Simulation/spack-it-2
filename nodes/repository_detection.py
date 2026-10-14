@@ -22,12 +22,14 @@ def validate_url(state: AgentState) -> dict:
     ):
         return {
             "current_stage": "validate_url",
+            "node_history": state.get("node_history", []) + ["validate_url"],
             "status": "invalid",
         }
 
     return {
         "repo_url": repo_url.rstrip("/"),
         "current_stage": "validate_url",
+        "node_history": state.get("node_history", []) + ["validate_url"],
         "status": "valid",
     }
 
@@ -42,6 +44,8 @@ def initialize_state(state: AgentState) -> dict:
         "mode": None,
         "metadata": {},
         "recipe_model": None,
+        "validation_result": None,
+        "quality_score": None,
         "remaining_depth": state.get("remaining_depth", 0),
         "dependency_path": state.get("dependency_path", []),
         "processed_packages": state.get("processed_packages", []),
@@ -50,6 +54,7 @@ def initialize_state(state: AgentState) -> dict:
         "current_dependency": None,
         "dependency_repo_url": None,
         "current_stage": "initialize_state",
+        "node_history": state.get("node_history", []) + ["initialize_state"],
         "errors": [],
         "needs_human": False,
         "status": "initialized",
@@ -80,12 +85,14 @@ def clone_repo(state: AgentState) -> dict:
         return {
             "repo_path": str(repo_path),
             "current_stage": "clone_repo",
+            "node_history": state.get("node_history", []) + ["clone_repo"],
             "status": "cloned",
         }
 
     except subprocess.CalledProcessError as error:
         return {
             "current_stage": "clone_repo",
+            "node_history": state.get("node_history", []) + ["clone_repo"],
             "status": "failed",
             "errors": state["errors"] + [error.stderr],
         }
@@ -93,6 +100,7 @@ def clone_repo(state: AgentState) -> dict:
     except OSError as error:
         return {
             "current_stage": "clone_repo",
+            "node_history": state.get("node_history", []) + ["clone_repo"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -128,12 +136,14 @@ def inspect_files(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "inspect_files",
+            "node_history": state.get("node_history", []) + ["inspect_files"],
             "status": "files inspected",
         }
 
     except OSError as error:
         return {
             "current_stage": "inspect_files",
+            "node_history": state.get("node_history", []) + ["inspect_files"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -177,6 +187,7 @@ def detect_project_type(state: AgentState) -> dict:
         "languages": languages,
         "build_system": build_system,
         "current_stage": "detect_project_type",
+        "node_history": state.get("node_history", []) + ["detect_project_type"],
         "status": "supported" if supported else "unsupported",
     }
 
@@ -193,6 +204,7 @@ def invalid_input(state: AgentState) -> dict:
     """Stop when the repository URL is invalid."""
     return {
         "current_stage": "invalid_input",
+        "node_history": state.get("node_history", []) + ["invalid_input"],
         "status": "invalid repository URL",
         "errors": ["Invalid GitHub repository URL"],
         "needs_human": True,
@@ -211,6 +223,7 @@ def clone_failed(state: AgentState) -> dict:
     """Stop when the repository could not be cloned."""
     return {
         "current_stage": "clone_failed",
+        "node_history": state.get("node_history", []) + ["clone_failed"],
         "status": "repository clone failed",
         "needs_human": True,
     }
@@ -228,6 +241,7 @@ def inspection_failed(state: AgentState) -> dict:
     """Stop when repository inspection fails."""
     return {
         "current_stage": "inspection_failed",
+        "node_history": state.get("node_history", []) + ["inspection_failed"],
         "status": "repository inspection failed",
         "needs_human": True,
     }
@@ -245,6 +259,7 @@ def unsupported_project(state: AgentState) -> dict:
     """Stop when the detected project type is unsupported."""
     return {
         "current_stage": "unsupported_project",
+        "node_history": state.get("node_history", []) + ["unsupported_project"],
         "status": "unsupported project type",
         "needs_human": True,
     }

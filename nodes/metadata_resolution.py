@@ -17,6 +17,7 @@ def extract_metadata(state: AgentState) -> dict:
     if not pyproject_path.exists():
         return {
             "current_stage": "extract_metadata",
+            "node_history": state.get("node_history", []) + ["extract_metadata"],
             "status": "failed",
             "errors": state["errors"] + ["pyproject.toml not found"],
         }
@@ -27,6 +28,7 @@ def extract_metadata(state: AgentState) -> dict:
     except (OSError, tomllib.TOMLDecodeError) as error:
         return {
             "current_stage": "extract_metadata",
+            "node_history": state.get("node_history", []) + ["extract_metadata"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -78,6 +80,7 @@ def metadata_extraction_failed(state: AgentState) -> dict:
     """Stop when project metadata could not be extracted."""
     return {
         "current_stage": "metadata_extraction_failed",
+        "node_history": state.get("node_history", []) + ["metadata_extraction_failed"],
         "status": "metadata extraction failed",
         "needs_human": True,
     }
@@ -94,6 +97,7 @@ def check_metadata(state: AgentState) -> dict:
 
     return {
         "current_stage": "check_metadata",
+        "node_history": state.get("node_history", []) + ["check_metadata"],
         "status": status,
     }
 
@@ -110,6 +114,7 @@ def missing_metadata(state: AgentState) -> dict:
     """Stop when required project metadata is missing."""
     return {
         "current_stage": "missing_metadata",
+        "node_history": state.get("node_history", []) + ["missing_metadata"],
         "status": "missing required metadata",
         "needs_human": True,
     }
@@ -130,6 +135,7 @@ def check_existing_spack_package(state: AgentState) -> dict:
         return {
             "mode": None,
             "current_stage": "check_existing_spack_package",
+            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -138,6 +144,7 @@ def check_existing_spack_package(state: AgentState) -> dict:
         return {
             "mode": "benchmark",
             "current_stage": "check_existing_spack_package",
+            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
             "status": "existing package found",
         }
 
@@ -145,12 +152,14 @@ def check_existing_spack_package(state: AgentState) -> dict:
         return {
             "mode": "new_package",
             "current_stage": "check_existing_spack_package",
+            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
             "status": "package not found",
         }
 
     return {
         "mode": None,
         "current_stage": "check_existing_spack_package",
+        "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
         "status": "failed",
         "errors": state["errors"]
         + [result.stderr.strip() or "Spack package check failed"],
@@ -172,6 +181,7 @@ def spack_package_check_failed(state: AgentState) -> dict:
     """Stop when the Spack package lookup fails."""
     return {
         "current_stage": "spack_package_check_failed",
+        "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
         "status": "Spack package check failed",
         "needs_human": True,
     }
@@ -186,6 +196,7 @@ def check_pypi_applicability(state: AgentState) -> dict:
 
     return {
         "current_stage": "check_pypi_applicability",
+        "node_history": state.get("node_history", []) + ["check_pypi_applicability"],
         "status": "applicable" if applicable else "not applicable",
     }
 
@@ -207,6 +218,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_pypi_source",
+            "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
             "status": "failed",
             "errors": state["errors"] + ["Missing package name for PyPI lookup"],
         }
@@ -220,6 +232,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
             return {
                 "metadata": metadata,
                 "current_stage": "resolve_pypi_source",
+                "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
                 "status": "unavailable",
             }
 
@@ -229,6 +242,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_pypi_source",
+            "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -256,6 +270,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_pypi_source",
+            "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
             "status": "unavailable",
         }
 
@@ -288,6 +303,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
     return {
         "metadata": metadata,
         "current_stage": "resolve_pypi_source",
+        "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
         "status": "resolved",
     }
 
@@ -315,6 +331,7 @@ def pypi_resolution_failed(state: AgentState) -> dict:
     """Stop when a usable PyPI source could not be resolved."""
     return {
         "current_stage": "pypi_resolution_failed",
+        "node_history": state.get("node_history", []) + ["pypi_resolution_failed"],
         "status": "PyPI source resolution failed",
         "needs_human": True,
     }
@@ -329,6 +346,7 @@ def resolve_repository_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_repository_source",
+            "node_history": state.get("node_history", []) + ["resolve_repository_source"],
             "status": "unresolved",
             "errors": state["errors"] + ["No version available for repository source lookup"],
         }
@@ -342,6 +360,7 @@ def resolve_repository_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_repository_source",
+            "node_history": state.get("node_history", []) + ["resolve_repository_source"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -350,6 +369,7 @@ def resolve_repository_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_repository_source",
+            "node_history": state.get("node_history", []) + ["resolve_repository_source"],
             "status": "unresolved",
             "errors": state["errors"]
             + [f"Expected one matching repository tag, found {len(matching_tags)}"],
@@ -366,6 +386,7 @@ def resolve_repository_source(state: AgentState) -> dict:
         return {
             "metadata": metadata,
             "current_stage": "resolve_repository_source",
+            "node_history": state.get("node_history", []) + ["resolve_repository_source"],
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
@@ -381,6 +402,7 @@ def resolve_repository_source(state: AgentState) -> dict:
     return {
         "metadata": metadata,
         "current_stage": "resolve_repository_source",
+        "node_history": state.get("node_history", []) + ["resolve_repository_source"],
         "status": "resolved",
     }
 
@@ -400,6 +422,7 @@ def repository_source_unresolved(state: AgentState) -> dict:
     """Stop when a trustworthy repository source cannot be resolved."""
     return {
         "current_stage": "repository_source_unresolved",
+        "node_history": state.get("node_history", []) + ["repository_source_unresolved"],
         "status": "repository source unresolved",
         "needs_human": True,
     }
@@ -409,6 +432,7 @@ def repository_resolution_failed(state: AgentState) -> dict:
     """Stop when repository source resolution fails."""
     return {
         "current_stage": "repository_resolution_failed",
+        "node_history": state.get("node_history", []) + ["repository_resolution_failed"],
         "status": "repository source resolution failed",
         "needs_human": True,
     }

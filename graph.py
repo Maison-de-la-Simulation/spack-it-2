@@ -1,3 +1,6 @@
+import logging
+from functools import wraps
+from time import perf_counter
 from langgraph.graph import END, START, StateGraph
 
 from nodes.metadata_resolution import (
@@ -36,7 +39,20 @@ from nodes.dependency_resolution import (
     route_after_recursion_guard,
 )
 
-from nodes.recipe_generation import generate_recipe
+from nodes.recipe_generation import (
+    generate_recipe,
+    route_after_recipe_generation,
+)
+
+from nodes.recipe_validation import (
+    check_recipe_quality,
+    recipe_quality_low,
+    recipe_valid,
+    recipe_validation_failed,
+    route_after_recipe_quality,
+    route_after_recipe_validation,
+    validate_recipe,
+)
 
 from nodes.recipe_model import (
     check_recipe_inputs,
@@ -66,82 +82,137 @@ from nodes.repository_detection import (
 )
 from state import AgentState
 
+logger = logging.getLogger(__name__)
+
+
+def add_logged_node(builder, node_name, node_function) -> None:
+    """Register a node with progress logging and execution history."""
+
+    @wraps(node_function)
+    def logged_node(state: AgentState) -> dict:
+        package = state.get("package_name") or state.get("repo_url") or "unknown"
+        depth = len(state.get("dependency_path") or [])
+        history = list(state.get("node_history") or [])
+        started = perf_counter()
+
+        logger.info(
+            "START node=%s package=%s depth=%s",
+            node_name, package, depth,
+        )
+
+        try:
+            update = node_function(state)
+            update = {
+                **update,
+                "node_history": history + [node_name],
+            }
+        except Exception:
+            logger.exception(
+                "ERROR node=%s package=%s depth=%s elapsed=%.2fs",
+                node_name, package, depth, perf_counter() - started,
+            )
+            raise
+
+        status = update.get("status", state.get("status", "unknown"))
+        needs_human = update.get(
+            "needs_human", state.get("needs_human", False)
+        )
+        log = logger.warning if needs_human else logger.info
+
+        log(
+            "END node=%s package=%s depth=%s elapsed=%.2fs status=%s",
+            node_name,
+            update.get("package_name") or package,
+            depth,
+            perf_counter() - started,
+            status,
+        )
+
+        return update
+
+    builder.add_node(node_name, logged_node)
+
 
 def build_graph():
     """Build the workflow while keeping extraction, routing, and rendering separate."""
     workflow = StateGraph(AgentState)
 
     # Section 1: Repository and Project Detection
-    workflow.add_node("validate_url", validate_url)
-    workflow.add_node("initialize_state", initialize_state)
-    workflow.add_node("clone_repo", clone_repo)
-    workflow.add_node("inspect_files", inspect_files)
-    workflow.add_node("detect_project_type", detect_project_type)
+    add_logged_node(workflow, "validate_url", validate_url)
+    add_logged_node(workflow, "initialize_state", initialize_state)
+    add_logged_node(workflow, "clone_repo", clone_repo)
+    add_logged_node(workflow, "inspect_files", inspect_files)
+    add_logged_node(workflow, "detect_project_type", detect_project_type)
 
-    workflow.add_node("invalid_input", invalid_input)
-    workflow.add_node("clone_failed", clone_failed)
-    workflow.add_node("inspection_failed", inspection_failed)
-    workflow.add_node("unsupported_project", unsupported_project)
+    add_logged_node(workflow, "invalid_input", invalid_input)
+    add_logged_node(workflow, "clone_failed", clone_failed)
+    add_logged_node(workflow, "inspection_failed", inspection_failed)
+    add_logged_node(workflow, "unsupported_project", unsupported_project)
 
     # Section 2
-    workflow.add_node("extract_metadata", extract_metadata)
-    workflow.add_node("metadata_extraction_failed", metadata_extraction_failed)
-    workflow.add_node("check_metadata", check_metadata)
-    workflow.add_node("missing_metadata", missing_metadata)
+    add_logged_node(workflow, "extract_metadata", extract_metadata)
+    add_logged_node(workflow, "metadata_extraction_failed", metadata_extraction_failed)
+    add_logged_node(workflow, "check_metadata", check_metadata)
+    add_logged_node(workflow, "missing_metadata", missing_metadata)
 
-    workflow.add_node(
+    add_logged_node(workflow,
         "check_existing_spack_package",
         check_existing_spack_package,
     )
-    workflow.add_node(
+    add_logged_node(workflow,
         "spack_package_check_failed",
         spack_package_check_failed,
     )
-    workflow.add_node(
+    add_logged_node(workflow,
         "check_pypi_applicability",
         check_pypi_applicability,
     )
-    workflow.add_node("resolve_pypi_source", resolve_pypi_source)
-    workflow.add_node("pypi_resolution_failed", pypi_resolution_failed)
+    add_logged_node(workflow, "resolve_pypi_source", resolve_pypi_source)
+    add_logged_node(workflow, "pypi_resolution_failed", pypi_resolution_failed)
 
-    workflow.add_node("resolve_repository_source", resolve_repository_source)
-    workflow.add_node(
+    add_logged_node(workflow, "resolve_repository_source", resolve_repository_source)
+    add_logged_node(workflow,
         "repository_source_unresolved",
         repository_source_unresolved,
     )
 
-    workflow.add_node(
+    add_logged_node(workflow,
         "repository_resolution_failed",
         repository_resolution_failed,
     )
 
-    workflow.add_node("derive_recipe_model", derive_recipe_model)
-    workflow.add_node("recipe_model_ambiguous", recipe_model_ambiguous)
-    workflow.add_node("recipe_model_failed", recipe_model_failed)
-    workflow.add_node("check_missing_dependencies", check_missing_dependencies)
-    workflow.add_node("resolve_dependency_source", resolve_dependency_source)
-    workflow.add_node("check_recursion_guard", check_recursion_guard)
-    workflow.add_node(
+    add_logged_node(workflow, "derive_recipe_model", derive_recipe_model)
+    add_logged_node(workflow, "recipe_model_ambiguous", recipe_model_ambiguous)
+    add_logged_node(workflow, "recipe_model_failed", recipe_model_failed)
+    add_logged_node(workflow, "check_missing_dependencies", check_missing_dependencies)
+    add_logged_node(workflow, "resolve_dependency_source", resolve_dependency_source)
+    add_logged_node(workflow, "check_recursion_guard", check_recursion_guard)
+    add_logged_node(workflow,
         "package_dependency_recursively",
         package_dependency_recursively,
     )
 
-    workflow.add_node(
+    add_logged_node(workflow,
         "dependency_source_unresolved",
         dependency_source_unresolved,
     )
-    workflow.add_node(
+    add_logged_node(workflow,
         "recursive_dependency_failed",
         recursive_dependency_failed,
     )
-    workflow.add_node("recursion_depth_reached", recursion_depth_reached)
-    workflow.add_node("dependency_cycle_detected", dependency_cycle_detected)
-    workflow.add_node("check_recipe_inputs", check_recipe_inputs)
-    workflow.add_node("ready_for_recipe", ready_for_recipe)
-    workflow.add_node("recipe_inputs_missing", recipe_inputs_missing)
+    add_logged_node(workflow, "recursion_depth_reached", recursion_depth_reached)
+    add_logged_node(workflow, "dependency_cycle_detected", dependency_cycle_detected)
+    add_logged_node(workflow, "check_recipe_inputs", check_recipe_inputs)
+    add_logged_node(workflow, "ready_for_recipe", ready_for_recipe)
+    add_logged_node(workflow, "recipe_inputs_missing", recipe_inputs_missing)
 
     # Section 3
-    workflow.add_node("generate_recipe", generate_recipe)
+    add_logged_node(workflow, "generate_recipe", generate_recipe)
+    add_logged_node(workflow, "validate_recipe", validate_recipe)
+    add_logged_node(workflow, "recipe_validation_failed", recipe_validation_failed)
+    add_logged_node(workflow, "check_recipe_quality", check_recipe_quality)
+    add_logged_node(workflow, "recipe_valid", recipe_valid)
+    add_logged_node(workflow, "recipe_quality_low", recipe_quality_low)
 
     # Section 1: Repository and Project Detection
 
@@ -321,7 +392,36 @@ def build_graph():
     workflow.add_edge("dependency_cycle_detected", END)
 
     workflow.add_edge("ready_for_recipe", "generate_recipe")
-    workflow.add_edge("generate_recipe", END)
+    workflow.add_conditional_edges(
+        "generate_recipe",
+        route_after_recipe_generation,
+        {
+            "validate_recipe": "validate_recipe",
+            "end": END,
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "validate_recipe",
+        route_after_recipe_validation,
+        {
+            "check_recipe_quality": "check_recipe_quality",
+            "recipe_validation_failed": "recipe_validation_failed",
+        },
+    )
+
+    workflow.add_edge("recipe_validation_failed", END)
+    workflow.add_conditional_edges(
+        "check_recipe_quality",
+        route_after_recipe_quality,
+        {
+            "recipe_valid": "recipe_valid",
+            "recipe_quality_low": "recipe_quality_low",
+        },
+    )
+
+    workflow.add_edge("recipe_valid", END)
+    workflow.add_edge("recipe_quality_low", END)
     workflow.add_edge("missing_metadata", END)
 
     return workflow.compile()

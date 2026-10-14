@@ -186,7 +186,7 @@ def package_dependency_recursively(state: AgentState) -> dict:
         }
     )
 
-    if child_state.get("status") != "recipe generated":
+    if child_state.get("status") != "recipe valid":
         return {
             "current_stage": "package_dependency_recursively",
             "status": "recursive dependency failed",

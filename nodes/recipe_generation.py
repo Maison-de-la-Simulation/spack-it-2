@@ -77,6 +77,14 @@ class {recipe_model["class_name"]}({recipe_model["base_class"]}):
     }
 
 
+def route_after_recipe_generation(state: AgentState) -> str:
+    """Route after recipe generation."""
+    if state["status"] == "recipe generated":
+        return "validate_recipe"
+
+    return "end"
+
+
 def _render_dependency(dependency: dict) -> str:
     spec = f'{dependency["name"]}{dependency["version"]}'
     dependency_types = dependency["types"]

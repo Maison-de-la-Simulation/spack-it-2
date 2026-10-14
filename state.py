@@ -18,6 +18,7 @@ class AgentState(TypedDict):
     metadata: dict
     recipe_model: dict | None
     current_stage: str
+    node_history: list[str]
     errors: list[str]
     needs_human: bool
     status: str
@@ -28,3 +29,5 @@ class AgentState(TypedDict):
     current_dependency: str | None
     dependency_repo_url: str | None
     selected_llm: str
+    validation_result: bool | None
+    quality_score: float | None
