@@ -1,4 +1,35 @@
+import shutil
+from pathlib import Path
 from state import AgentState
+
+
+def stage_generated_repo(packages: list[str]) -> Path:
+    """Copy generated recipes into a Spack package repository."""
+    repo_root = Path("validation/generated/spack_repo/generated")
+
+    if repo_root.exists():
+        shutil.rmtree(repo_root)
+
+    packages_dir = repo_root / "packages"
+    packages_dir.mkdir(parents=True)
+
+    (repo_root / "repo.yaml").write_text(
+        "repo:\n  namespace: generated\n  api: v2.2\n",
+        encoding="utf-8",
+    )
+
+    for package_name in sorted(set(packages)):
+        package_dir = package_name.replace("-", "_")
+        source = Path("outputs") / package_dir / "package.py"
+
+        if not source.is_file():
+            raise FileNotFoundError(f"Missing generated recipe: {source}")
+
+        destination = packages_dir / package_dir
+        destination.mkdir()
+        shutil.copy2(source, destination / "package.py")
+
+    return repo_root.resolve()
 
 
 def validate_recipe(state: AgentState) -> dict:
