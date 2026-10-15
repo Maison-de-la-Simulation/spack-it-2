@@ -30,4 +30,5 @@ class AgentState(TypedDict):
     dependency_repo_url: str | None
     selected_llm: str
     validation_result: bool | None
+    validation: dict
     quality_score: float | None

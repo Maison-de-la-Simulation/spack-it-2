@@ -32,6 +32,7 @@ def write_output(final_state: dict) -> None:
         "metadata": final_state.get("metadata", {}),
         "recipe_model": final_state.get("recipe_model"),
         "validation_result": final_state.get("validation_result"),
+        "validation": final_state.get("validation", {}),
         "quality_score": final_state.get("quality_score"),
         "current_stage": final_state.get("current_stage"),
         "node_history": final_state.get("node_history", []),
@@ -51,7 +52,7 @@ def write_output(final_state: dict) -> None:
     print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
     print("Mode:", final_state.get("mode"))
-    print("Validation result (placeholder):", final_state.get("validation_result"))
+    print("Validation result (audit only):", final_state.get("validation_result"))
     print("Quality score (%) (placeholder):", final_state.get("quality_score"))
     print("Metadata written to:", metadata_path)
 

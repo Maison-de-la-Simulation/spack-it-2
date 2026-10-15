@@ -1,5 +1,6 @@
 import shutil
 from pathlib import Path
+from spack_cli import run_spack_audit
 from state import AgentState
 
 
@@ -33,11 +34,41 @@ def stage_generated_repo(packages: list[str]) -> Path:
 
 
 def validate_recipe(state: AgentState) -> dict:
-    """Return True until the validation checks are implemented."""
+    """Run the Spack audit on generated recipes."""
+    audit = {"passed": False, "exit_code": None, "stdout": "", "stderr": ""}
+
+    try:
+        recipe_model = state.get("recipe_model") or {}
+        root_package = recipe_model.get("package_name")
+        if not root_package:
+            raise ValueError("Recipe model is missing the package name.")
+
+        packages = sorted({root_package, *state.get("processed_packages", [])})
+        repo_root = stage_generated_repo(packages)
+        result = run_spack_audit(repo_root.parent.parent, packages)
+        audit.update(
+            passed=result.returncode == 0,
+            exit_code=result.returncode,
+            stdout=result.stdout or "",
+            stderr=result.stderr or "",
+        )
+    except (OSError, ValueError) as error:
+        audit["stderr"] = str(error)
+
+    validation = dict(state.get("validation") or {})
+    validation["audit"] = audit
+    errors = list(state.get("errors", []))
+    if not audit["passed"]:
+        message = audit["stderr"] or audit["stdout"] or "Spack audit failed"
+        errors.append(message.strip())
+
     return {
         "current_stage": "validate_recipe",
-        "validation_result": True,
-        "status": "recipe validation passed",
+        "validation_result": audit["passed"],
+        "validation": validation,
+        "status": "recipe audit passed" if audit["passed"] else "recipe audit failed",
+        "needs_human": not audit["passed"],
+        "errors": errors,
     }
 
 
