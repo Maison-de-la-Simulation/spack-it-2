@@ -52,7 +52,7 @@ def write_output(final_state: dict) -> None:
     print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
     print("Mode:", final_state.get("mode"))
-    print("Validation result (audit only):", final_state.get("validation_result"))
+    print("Validation result:", final_state.get("validation_result"))
     print("Quality score (%) (placeholder):", final_state.get("quality_score"))
     print("Metadata written to:", metadata_path)
 

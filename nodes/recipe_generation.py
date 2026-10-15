@@ -80,6 +80,8 @@ class {recipe_model["class_name"]}({recipe_model["base_class"]}):
 def route_after_recipe_generation(state: AgentState) -> str:
     """Route after recipe generation."""
     if state["status"] == "recipe generated":
+        if state.get("dependency_path"):
+            return "end"
         return "validate_recipe"
 
     return "end"

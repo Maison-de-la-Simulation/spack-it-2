@@ -128,7 +128,6 @@ def check_existing_spack_package(state: AgentState) -> dict:
 
     try:
         result = run_spack_info(spack_package_name)
-
     except OSError as error:
         return {
             "mode": None,

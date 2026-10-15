@@ -1,6 +1,7 @@
 import logging
 from functools import wraps
 from time import perf_counter
+from spack_cli import remove_validation_container
 from langgraph.graph import END, START, StateGraph
 
 from nodes.metadata_resolution import (
@@ -52,6 +53,11 @@ from nodes.recipe_validation import (
     route_after_recipe_quality,
     route_after_recipe_validation,
     validate_recipe,
+    concretize_recipe,
+    install_recipe,
+    cleanup_validation,
+    route_after_concretization,
+    route_after_validation_cleanup,
 )
 
 from nodes.recipe_model import (
@@ -106,12 +112,15 @@ def add_logged_node(builder, node_name, node_function) -> None:
                 **update,
                 "node_history": history + [node_name],
             }
-        except Exception:
-            logger.exception(
-                "ERROR node=%s package=%s depth=%s elapsed=%.2fs",
-                node_name, package, depth, perf_counter() - started,
-            )
-            raise
+        except BaseException:
+            container_name = (state.get("validation") or {}).get("container_name")
+            if container_name:
+                try:
+                    remove_validation_container(container_name)
+                except OSError:
+                    logger.exception(
+                        "Could not remove validation container %s", container_name
+                    )
 
         status = update.get("status", state.get("status", "unknown"))
         needs_human = update.get(
@@ -209,6 +218,9 @@ def build_graph():
     # Section 3
     add_logged_node(workflow, "generate_recipe", generate_recipe)
     add_logged_node(workflow, "validate_recipe", validate_recipe)
+    add_logged_node(workflow, "concretize_recipe", concretize_recipe)
+    add_logged_node(workflow, "install_recipe", install_recipe)
+    add_logged_node(workflow, "cleanup_validation", cleanup_validation)
     add_logged_node(workflow, "recipe_validation_failed", recipe_validation_failed)
     add_logged_node(workflow, "check_recipe_quality", check_recipe_quality)
     add_logged_node(workflow, "recipe_valid", recipe_valid)
@@ -404,6 +416,26 @@ def build_graph():
     workflow.add_conditional_edges(
         "validate_recipe",
         route_after_recipe_validation,
+        {
+            "concretize_recipe": "concretize_recipe",
+            "cleanup_validation": "cleanup_validation",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "concretize_recipe",
+        route_after_concretization,
+        {
+            "install_recipe": "install_recipe",
+            "cleanup_validation": "cleanup_validation",
+        },
+    )
+
+    workflow.add_edge("install_recipe", "cleanup_validation")
+
+    workflow.add_conditional_edges(
+        "cleanup_validation",
+        route_after_validation_cleanup,
         {
             "check_recipe_quality": "check_recipe_quality",
             "recipe_validation_failed": "recipe_validation_failed",
