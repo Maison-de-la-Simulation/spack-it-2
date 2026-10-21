@@ -25,6 +25,13 @@ def remove_validation_container(container_name: str) -> None:
         )
 
 
+def cleanup_failed_start(container_name: str) -> None:
+    try:
+        remove_validation_container(container_name)
+    except OSError as error:
+        print("Could not clean up failed container startup:", error)
+
+
 def start_validation_container(generated_dir: Path) -> str:
     generated_dir = generated_dir.resolve(strict=True)
     repo_file = generated_dir / "spack_repo" / "generated" / "repo.yaml"
@@ -41,22 +48,29 @@ def start_validation_container(generated_dir: Path) -> str:
 
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=30,
+            command,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
-        if result.returncode != 0:
-            raise OSError(
-                result.stderr.strip() or result.stdout.strip()
-                or "Could not start the validation container."
-            )
-    except BaseException as error:
-        try:
-            remove_validation_container(container_name)
-        except (OSError, subprocess.SubprocessError):
-            pass
-
-        if isinstance(error, subprocess.TimeoutExpired):
-            raise TimeoutError("Validation container startup timed out.") from error
+    except subprocess.TimeoutExpired as error:
+        cleanup_failed_start(container_name)
+        raise TimeoutError("Validation container startup timed out.") from error
+    except KeyboardInterrupt:
+        cleanup_failed_start(container_name)
         raise
+
+    if result.returncode != 0:
+            message = result.stderr.strip()
+
+            if not message:
+                message = result.stdout.strip()
+
+            if not message:
+                message = "Could not start validation container."
+
+            cleanup_failed_start(container_name)
+            raise OSError(message)
 
     return container_name
 
@@ -73,7 +87,6 @@ def container_runtime() -> str:
 
 
 def run_spack_info(package_name: str) -> subprocess.CompletedProcess[str]:
-    runtime = shutil.which("docker") or shutil.which("podman")
 
     runtime = container_runtime()
 
@@ -99,42 +112,6 @@ def run_spack_info(package_name: str) -> subprocess.CompletedProcess[str]:
     if result.returncode in (125, 126, 127):
         raise OSError(
             result.stderr.strip() or "The Spack container could not run."
-        )
-
-    return result
-
-
-def run_spack_audit(
-    generated_dir: Path,
-    packages: list[str],
-) -> subprocess.CompletedProcess[str]:
-    command = [
-        container_runtime(),
-        "run",
-        "--rm",
-        "--pull=never",
-        "-v",
-        f"{generated_dir.resolve()}:/work/generated:ro",
-        VALIDATION_IMAGE,
-        "/opt/validation/audit.sh",
-        *[f"generated.{package}" for package in packages],
-    ]
-
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except subprocess.TimeoutExpired as error:
-        raise TimeoutError(
-            "Spack audit timed out after 120 seconds."
-        ) from error
-
-    if result.returncode in (125, 126, 127):
-        raise OSError(
-            result.stderr.strip() or "The audit container could not run."
         )
 
     return result
@@ -171,28 +148,17 @@ def run_validation_step(
     output = []
 
     try:
-        assert process.stdout is not None
         for line in process.stdout:
             output.append(line)
             print(line, end="", flush=True)
 
         returncode = process.wait()
-    except BaseException:
-        process.kill()
-        process.wait()
-        try:
-            subprocess.run(
-                [runtime, "stop", "--time", "0", container_name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=15,
-            )
-        except (OSError, subprocess.SubprocessError):
-            pass
-        raise
     finally:
-        if process.stdout is not None:
-            process.stdout.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+        process.stdout.close()
 
     log = "".join(output)
     if returncode in (125, 126, 127):

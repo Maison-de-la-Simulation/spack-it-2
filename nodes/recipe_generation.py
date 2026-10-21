@@ -82,7 +82,7 @@ def route_after_recipe_generation(state: AgentState) -> str:
     if state["status"] == "recipe generated":
         if state.get("dependency_path"):
             return "end"
-        return "validate_recipe"
+        return "prepare_validation"
 
     return "end"
 

@@ -48,6 +48,8 @@ from nodes.recipe_generation import (
 from nodes.recipe_validation import (
     check_recipe_quality,
     recipe_quality_low,
+    prepare_validation,
+    route_after_validation_preparation,
     recipe_valid,
     recipe_validation_failed,
     route_after_recipe_quality,
@@ -121,6 +123,7 @@ def add_logged_node(builder, node_name, node_function) -> None:
                     logger.exception(
                         "Could not remove validation container %s", container_name
                     )
+            raise
 
         status = update.get("status", state.get("status", "unknown"))
         needs_human = update.get(
@@ -217,6 +220,7 @@ def build_graph():
 
     # Section 3
     add_logged_node(workflow, "generate_recipe", generate_recipe)
+    add_logged_node(workflow, "prepare_validation", prepare_validation)
     add_logged_node(workflow, "validate_recipe", validate_recipe)
     add_logged_node(workflow, "concretize_recipe", concretize_recipe)
     add_logged_node(workflow, "install_recipe", install_recipe)
@@ -408,8 +412,17 @@ def build_graph():
         "generate_recipe",
         route_after_recipe_generation,
         {
-            "validate_recipe": "validate_recipe",
+            "prepare_validation": "prepare_validation",
             "end": END,
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "prepare_validation",
+        route_after_validation_preparation,
+        {
+            "validate_recipe": "validate_recipe",
+            "cleanup_validation": "cleanup_validation",
         },
     )
 
