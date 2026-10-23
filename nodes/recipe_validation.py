@@ -1,11 +1,8 @@
 import shutil
-import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from hashlib import sha256
 from io import BytesIO
-import tarfile
 from urllib.request import urlopen
-import zipfile
 from spack_cli import (
     run_validation_step,
     start_validation_container,
@@ -13,77 +10,6 @@ from spack_cli import (
 )
 from state import AgentState
 GENERATED_DIR = Path("validation/generated")
-
-def read_source_pyproject(metadata: dict) -> str:
-    source_url = (
-        metadata.get("pypi_source_url")
-        if metadata.get("source_type") == "pypi"
-        else metadata.get("source_location")
-    )
-    expected_hash = metadata.get("source_sha256")
-    if not source_url or not expected_hash:
-        raise ValueError("Source archive URL or SHA-256 is missing.")
-
-    with urlopen(source_url, timeout=60) as response:
-        content = response.read()
-    if sha256(content).hexdigest() != expected_hash.lower():
-        raise ValueError("Source archive SHA-256 does not match.")
-
-    buffer = BytesIO(content)
-    is_zip = zipfile.is_zipfile(buffer)
-    buffer.seek(0)
-    archive = (
-        zipfile.ZipFile(buffer)
-        if is_zip
-        else tarfile.open(fileobj=buffer, mode="r:*")
-    )
-    with archive:
-        names = (
-            [item.filename for item in archive.infolist() if not item.is_dir()]
-            if is_zip
-            else [item.name for item in archive.getmembers() if item.isfile()]
-        )
-        target = PurePosixPath("pyproject.toml")
-        paths = {PurePosixPath(name) for name in names}
-        if target not in paths:
-            roots = {path.parts[0] for path in paths if path.parts}
-            if len(roots) != 1:
-                raise ValueError("Cannot identify the source archive root.")
-            target = PurePosixPath(roots.pop()) / "pyproject.toml"
-
-        matches = [name for name in names if PurePosixPath(name) == target]
-        if len(matches) != 1:
-            raise ValueError("Expected one root pyproject.toml in the source archive.")
-        if is_zip:
-            return archive.read(matches[0]).decode("utf-8")
-        with archive.extractfile(matches[0]) as file:
-            return file.read().decode("utf-8")
-
-
-def build_quality_evidence(state: AgentState) -> dict:
-    metadata = state.get("metadata") or {}
-    recipe_path = metadata.get("generated_recipe_path")
-
-    if not recipe_path:
-        raise ValueError("Generated recipe path is missing.")
-
-    source_text = read_source_pyproject(metadata)
-    source_project = tomllib.loads(source_text).get("project", {})
-    return {
-        "repo_url": state.get("repo_url"),
-        "project_version": source_project.get("version"),
-        "pyproject_toml": source_text,
-        "resolved_source": {
-            key: metadata.get(key)
-            for key in (
-                "source_type",
-                "source_location",
-                "source_version",
-                "source_sha256",
-            )
-        },
-        "generated_recipe": Path(recipe_path).read_text(encoding="utf-8"),
-    }
 
 
 def route_after_concretization(state: AgentState) -> str:
