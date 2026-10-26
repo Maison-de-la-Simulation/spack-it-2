@@ -1,4 +1,5 @@
-from packaging.requirements import InvalidRequirement, Requirement
+from packaging.requirements import Requirement
+from packaging.version import Version
 
 from llm import decide_optional_group
 from state import AgentState
@@ -171,12 +172,12 @@ def derive_recipe_model(state: AgentState) -> dict:
                 for requirement in requirements
             )
 
-    except InvalidRequirement as error:
+    except ValueError as error:
         return {
             "recipe_model": None,
             "current_stage": "derive_recipe_model",
             "node_history": state.get("node_history", []) + ["derive_recipe_model"],
-            "status": "failed to parse dependency requirement",
+            "status": "failed to process dependency requirement",
             "errors": state["errors"] + [str(error)],
             "needs_human": True,
         }
@@ -323,18 +324,69 @@ def _spack_python_name(name: str) -> str:
     return f"py-{normalized}"
 
 
+def _spack_upper_bound(version: str) -> str:
+    """Convert a numeric '<' bound to an inclusive Spack bound."""
+    parts = version.split(".")
+    if not all(part.isdecimal() for part in parts):
+        raise ValueError(f"Unsupported upper version bound: <{version}")
+
+    numbers = [int(part) for part in parts]
+
+    while numbers and numbers[-1] == 0:
+        numbers.pop()
+
+    if not numbers:
+        raise ValueError(f"No numeric release version satisfies <{version}")
+
+    numbers[-1] -= 1
+    return ".".join(str(number) for number in numbers)
+
+
 def _spack_version_from_requirement(requirement: str) -> str:
     parsed = Requirement(requirement)
     lower_bound = None
+    upper_bound = None
+    exact_version = None
 
     for specifier in parsed.specifier:
+        version = specifier.version
+
         if specifier.operator == "==":
-            return f"@={specifier.version}"
+            exact_version = version
 
-        if specifier.operator == ">=":
-            lower_bound = specifier.version
+        elif specifier.operator == ">=":
+            if lower_bound is None or Version(version) > Version(lower_bound):
+                lower_bound = version
 
-    if lower_bound:
+        elif specifier.operator == "<":
+            if upper_bound is None or Version(version) < Version(upper_bound):
+                upper_bound = version
+
+        else:
+            raise ValueError(
+                f"Unsupported version operator: {specifier.operator}"
+            )
+
+    if exact_version is not None:
+        if "*" in exact_version:
+            raise ValueError(
+                f"Wildcard version requirements are not supported: {requirement}"
+            )
+        if not parsed.specifier.contains(exact_version, prereleases=True):
+            raise ValueError(f"Conflicting version constraints: {requirement}")
+        return f"@={exact_version}"
+
+    if lower_bound is not None and upper_bound is not None:
+        if Version(lower_bound) >= Version(upper_bound):
+            raise ValueError(f"Conflicting version constraints: {requirement}")
+
+    if upper_bound is not None:
+        upper_bound = _spack_upper_bound(upper_bound)
+        if lower_bound is not None:
+            return f"@{lower_bound}:{upper_bound}"
+        return f"@:{upper_bound}"
+
+    if lower_bound is not None:
         return f"@{lower_bound}:"
 
     return ""
