@@ -191,6 +191,14 @@ def package_dependency_recursively(state: AgentState) -> dict:
         }
     )
 
+    if child_state.get("output_cancelled"):
+        return {
+            "current_stage": "package_dependency_recursively",
+            "status": "output cancelled",
+            "output_cancelled": True,
+            "needs_human": False,
+        }
+
     if child_state.get("status") != "recipe generated":
         return {
             "current_stage": "package_dependency_recursively",
@@ -221,6 +229,9 @@ def package_dependency_recursively(state: AgentState) -> dict:
 
 
 def route_after_recursive_dependency(state: AgentState) -> str:
+    if state.get("output_cancelled"):
+        return "end"
+
     if state.get("status") == "recursive dependency packaged":
         return "check_missing_dependencies"
 

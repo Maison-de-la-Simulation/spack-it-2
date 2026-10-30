@@ -210,7 +210,7 @@ def derive_recipe_model(state: AgentState) -> dict:
 def route_after_recipe_model(state: AgentState) -> str:
     """Route after recipe model derivation."""
     if state.get("recipe_model"):
-        return "check_missing_dependencies"
+        return "prepare_output"
 
     if state.get("status") == "optional dependency decision needs review":
         return "recipe_model_ambiguous"

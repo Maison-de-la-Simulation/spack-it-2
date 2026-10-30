@@ -3,6 +3,49 @@ from pathlib import Path
 from state import AgentState
 
 
+def prepare_output(state: AgentState) -> dict:
+    """Ask before replacing output from an earlier run."""
+    package_name = state["recipe_model"]["package_name"]
+    output_dir = Path("outputs") / package_name.replace("-", "_")
+
+    if output_dir.exists():
+        answer = input(
+            f"{output_dir} already exists. "
+            "Replace package.py and metadata.json? [y/N]: "
+        )
+
+        if answer.strip().lower() != "y":
+            return {
+                "current_stage": "prepare_output",
+                "status": "output cancelled",
+                "output_prepared": False,
+                "output_cancelled": True,
+                "needs_human": False,
+            }
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for filename in ("package.py", "metadata.json"):
+        output_file = output_dir / filename
+        if output_file.is_file():
+            output_file.unlink()
+
+    return {
+        "current_stage": "prepare_output",
+        "status": "output prepared",
+        "output_prepared": True,
+        "output_cancelled": False,
+        "needs_human": False,
+    }
+
+
+def route_after_output_preparation(state: AgentState) -> str:
+    if state["output_cancelled"]:
+        return "end"
+
+    return "check_missing_dependencies"
+
+
 def generate_recipe(state: AgentState) -> dict:
     """Render package.py from the recipe model."""
     recipe_model = state["recipe_model"]

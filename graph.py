@@ -43,6 +43,8 @@ from nodes.dependency_resolution import (
 from nodes.recipe_generation import (
     generate_recipe,
     route_after_recipe_generation,
+    prepare_output,
+    route_after_output_preparation,
 )
 
 from nodes.recipe_validation import (
@@ -194,6 +196,7 @@ def build_graph():
     )
 
     add_logged_node(workflow, "derive_recipe_model", derive_recipe_model)
+    add_logged_node(workflow, "prepare_output", prepare_output)
     add_logged_node(workflow, "recipe_model_ambiguous", recipe_model_ambiguous)
     add_logged_node(workflow, "recipe_model_failed", recipe_model_failed)
     add_logged_node(workflow, "check_missing_dependencies", check_missing_dependencies)
@@ -346,9 +349,18 @@ def build_graph():
         "derive_recipe_model",
         route_after_recipe_model,
         {
-            "check_missing_dependencies": "check_missing_dependencies",
+            "prepare_output": "prepare_output",
             "recipe_model_ambiguous": "recipe_model_ambiguous",
             "recipe_model_failed": "recipe_model_failed",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "prepare_output",
+        route_after_output_preparation,
+        {
+            "check_missing_dependencies": "check_missing_dependencies",
+            "end": END,
         },
     )
 
@@ -386,6 +398,7 @@ def build_graph():
         {
             "check_missing_dependencies": "check_missing_dependencies",
             "recursive_dependency_failed": "recursive_dependency_failed",
+            "end": END,
         },
     )
 

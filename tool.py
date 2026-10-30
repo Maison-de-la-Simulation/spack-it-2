@@ -19,6 +19,14 @@ def write_output(final_state: dict) -> None:
     spack_package_dir = spack_package_name.replace("-", "_")
 
     output_dir = Path("outputs") / spack_package_dir
+
+    if output_dir.exists() and not final_state.get("output_prepared"):
+        print("Final status:", final_state.get("status"))
+        print("Existing output preserved:", output_dir)
+        for error in final_state.get("errors", []):
+            print("Error:", error)
+        return
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     output_data = {
@@ -71,8 +79,12 @@ def run_package(
             "selected_llm": selected_llm,
         }
     )
-    write_output(final_state)
 
+    if final_state.get("output_cancelled"):
+        print("Run cancelled. Final metadata was not written.")
+        return False
+
+    write_output(final_state)
     return final_state.get("status") == "recipe valid"
 
 

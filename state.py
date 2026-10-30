@@ -22,6 +22,8 @@ class AgentState(TypedDict):
     errors: list[str]
     needs_human: bool
     status: str
+    output_prepared: bool
+    output_cancelled: bool
     remaining_depth: int
     dependency_path: list[str]
     processed_packages: list[str]
