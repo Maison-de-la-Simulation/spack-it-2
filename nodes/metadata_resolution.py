@@ -3,6 +3,8 @@ import subprocess
 import re
 import tomllib
 import requests
+import shutil
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from state import AgentState
@@ -24,8 +26,7 @@ def extract_metadata(state: AgentState) -> dict:
         }
 
     try:
-        with pyproject_path.open("rb") as file:
-            pyproject = tomllib.load(file)
+        metadata.update(_read_project_metadata(repo_path))
     except (OSError, tomllib.TOMLDecodeError) as error:
         return {
             "current_stage": "extract_metadata",
@@ -33,31 +34,6 @@ def extract_metadata(state: AgentState) -> dict:
             "status": "failed",
             "errors": state["errors"] + [str(error)],
         }
-
-    project = pyproject.get("project", {})
-    build_system = pyproject.get("build-system", {})
-    urls = project.get("urls", {})
-
-    project_version = project.get("version")
-    dynamic_version = _read_dynamic_version(repo_path, pyproject)
-
-    metadata["project_name"] = project.get("name")
-    metadata["description"] = project.get("description")
-    metadata["project_version"] = project_version or dynamic_version
-    metadata["version_source"] = (
-        "project.version" if project_version else "dynamic"
-    )
-    metadata["dynamic_fields"] = project.get("dynamic", [])
-    metadata["requires_python"] = project.get("requires-python")
-    metadata["license"] = _normalize_license(project.get("license"))
-    metadata["homepage"] = urls.get("Homepage") or urls.get("homepage")
-    metadata["source_url"] = urls.get("Source") or urls.get("source")
-    metadata["dependencies"] = project.get("dependencies", [])
-    metadata["optional_dependencies"] = project.get(
-        "optional-dependencies", {}
-    )
-    metadata["build_backend"] = build_system.get("build-backend")
-    metadata["build_requires"] = build_system.get("requires", [])
 
     package_name = metadata.get("project_name") or repo_path.name
 
@@ -275,6 +251,29 @@ def resolve_pypi_source(state: AgentState) -> dict:
     source_url = sdist["url"]
     filename = sdist["filename"]
     source_version = str(version)
+    expected_hash = sdist.get("digests", {}).get("sha256")
+
+    try:
+        archive_response = requests.get(source_url, timeout=60)
+        archive_response.raise_for_status()
+        content = archive_response.content
+
+        actual_hash = hashlib.sha256(content).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError("Source archive SHA-256 does not match PyPI.")
+
+        source_metadata = _read_archive_metadata(content, filename)
+        if not source_metadata.get("project_name"):
+            raise ValueError("The selected source is missing project.name.")
+    except (requests.RequestException, OSError, ValueError) as error:
+        return {
+            "metadata": metadata,
+            "current_stage": "resolve_pypi_source",
+            "status": "failed",
+            "errors": state["errors"] + [str(error)],
+        }
+
+    metadata.update(source_metadata)
 
     filename_stem = filename
 
@@ -289,9 +288,9 @@ def resolve_pypi_source(state: AgentState) -> dict:
         pypi_directory = project_name.replace("-", "_")
 
     metadata["pypi_name"] = pypi_data.get("info", {}).get("name")
-    metadata["source_version"] = version
+    metadata["source_version"] = source_version
     metadata["pypi_source_url"] = source_url
-    metadata["source_sha256"] = sdist.get("digests", {}).get("sha256")
+    metadata["source_sha256"] = expected_hash
     metadata["source_filename"] = filename
     metadata["pypi_path"] = f"{pypi_directory}/{filename}"
     metadata["source_type"] = "pypi"
@@ -301,6 +300,7 @@ def resolve_pypi_source(state: AgentState) -> dict:
         "metadata": metadata,
         "current_stage": "resolve_pypi_source",
         "node_history": state.get("node_history", []) + ["resolve_pypi_source"],
+        "package_name": metadata["project_name"],
         "status": "resolved",
     }
 
@@ -379,7 +379,12 @@ def resolve_repository_source(state: AgentState) -> dict:
     try:
         response = requests.get(archive_url, timeout=30)
         response.raise_for_status()
-    except requests.RequestException as error:
+        content = response.content
+        source_metadata = _read_archive_metadata(content, "source.tar.gz")
+
+        if not source_metadata.get("project_name"):
+            raise ValueError("The selected source is missing project.name.")
+    except (requests.RequestException, OSError, ValueError) as error:
         return {
             "metadata": metadata,
             "current_stage": "resolve_repository_source",
@@ -388,7 +393,8 @@ def resolve_repository_source(state: AgentState) -> dict:
             "errors": state["errors"] + [str(error)],
         }
 
-    sha256 = hashlib.sha256(response.content).hexdigest()
+    sha256 = hashlib.sha256(content).hexdigest()
+    metadata.update(source_metadata)
 
     metadata["repository_source_tag"] = tag
     metadata["source_type"] = "url"
@@ -400,6 +406,7 @@ def resolve_repository_source(state: AgentState) -> dict:
         "metadata": metadata,
         "current_stage": "resolve_repository_source",
         "node_history": state.get("node_history", []) + ["resolve_repository_source"],
+        "package_name": metadata["project_name"],
         "status": "resolved",
     }
 
@@ -432,6 +439,58 @@ def repository_resolution_failed(state: AgentState) -> dict:
         "node_history": state.get("node_history", []) + ["repository_resolution_failed"],
         "status": "repository source resolution failed",
         "needs_human": True,
+    }
+
+
+def _read_archive_metadata(content: bytes, filename: str) -> dict:
+    """Unpack one source archive and read its project metadata."""
+    with TemporaryDirectory() as directory:
+        work_dir = Path(directory)
+        archive_path = work_dir / Path(filename).name
+        archive_path.write_bytes(content)
+
+        source_dir = work_dir / "source"
+        source_dir.mkdir()
+
+        if archive_path.suffix == ".zip":
+            shutil.unpack_archive(archive_path, source_dir)
+        else:
+            shutil.unpack_archive(archive_path, source_dir, filter="data")
+
+        roots = list(source_dir.iterdir())
+        if len(roots) != 1 or not roots[0].is_dir():
+            raise ValueError(
+                "Expected one project directory in the source archive."
+            )
+
+        return _read_project_metadata(roots[0])
+
+
+def _read_project_metadata(project_dir: Path) -> dict:
+    """Read metadata from a directory containing pyproject.toml."""
+    with (project_dir / "pyproject.toml").open("rb") as file:
+        pyproject = tomllib.load(file)
+
+    project = pyproject.get("project", {})
+    build_system = pyproject.get("build-system", {})
+    urls = project.get("urls", {})
+    project_version = project.get("version")
+    dynamic_version = _read_dynamic_version(project_dir, pyproject)
+
+    return {
+        "project_name": project.get("name"),
+        "description": project.get("description"),
+        "project_version": project_version or dynamic_version,
+        "version_source": "project.version" if project_version else "dynamic",
+        "dynamic_fields": project.get("dynamic", []),
+        "requires_python": project.get("requires-python"),
+        "license": _normalize_license(project.get("license")),
+        "homepage": urls.get("Homepage") or urls.get("homepage"),
+        "source_url": urls.get("Source") or urls.get("source"),
+        "dependencies": project.get("dependencies", []),
+        "optional_dependencies": project.get("optional-dependencies", {}),
+        "build_backend": build_system.get("build-backend"),
+        "build_requires": build_system.get("requires", []),
     }
 
 
