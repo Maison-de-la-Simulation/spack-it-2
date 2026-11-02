@@ -12,86 +12,130 @@ A LangGraph-based prototype for generating Spack package recipes from a source r
 
 ## Overview
 
-The project analyses a software repository, extracts its package metadata, resolves its source archive, and generates an initial Spack `package.py` recipe.
+The tool generates Spack recipes for Python projects from a repository URL. It builds a structured recipe model using metadata from the selected source archive.
 
-The current implementation is deterministic and rule-based. LLM-assisted recipe modelling, validation, and repair will be added in later development phases.
+Metadata extraction and recipe rendering are deterministic. An LLM assists with optional dependency group decisions. Generated recipes are checked with Spack audit, concretization and installation in a container.
 
 ## Current workflow
 
 The prototype currently:
 
-- clones the provided source repository;
-- inspects the repository files;
-- detects the project type and build system;
-- extracts package metadata;
-- identifies package dependencies;
-- resolves a source archive;
-- generates a Spack package recipe;
-- writes the generated files to the `outputs/` directory.
+- validates the URL, clones the repository and inspects the project;
+- extracts initial metadata and checks whether the package exists in Spack;
+- selects a PyPI source distribution or repository-tag archive and reads its metadata;
+- derives a structured recipe model, with LLM assistance when needed;
+- asks before replacing existing package output;
+- recursively generates missing dependency recipes within the requested depth;
+- renders `package.py` from the recipe model;
+- runs Spack audit, concretization and installation in a validation container;
+- removes the validation container and saves the main package's results.
 
 ## Project structure
 
 - `graph.py` — defines the LangGraph workflow and transitions.
-- `nodes.py` — contains the workflow node implementations.
+- `nodes/` — contains the workflow node implementations, split by stage.
+- `spack_cli.py` — manages validation containers and runs Spack commands.
+- `validation/` — contains the Dockerfile and scripts for audit, concretization and installation.
 - `state.py` — defines the shared state used by the graph.
 - `tool.py` — provides the command-line entry point.
 - `.gitignore` — excludes generated files, virtual environments, caches, and local workspace files.
 
+## Setup
+
+Requirements: Python 3.12 or newer, Git, and a running Docker or Podman runtime.
+
+From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+The tool selects Docker if its command is available; otherwise it selects Podman. Build the validation image with the selected runtime.
+
+For Docker:
+
+```bash
+docker build -t localhost/spack-it-validation:1.2.2 validation
+```
+
+For Podman:
+
+```bash
+podman build -t localhost/spack-it-validation:1.2.2 validation
+```
+
+Rebuild the image after changing its Dockerfile or validation scripts.
+
+For LLM assistance:
+
+- `mdls` uses the configured MDLS server, which must be reachable when needed.
+- `open-router` requires `OPENROUTER_API_KEY` in the environment.
+
 ## Usage
 
-Activate the Python virtual environment:
+Run commands from the repository root with the virtual environment activated.
+
+Simple package example:
 
 ```bash
-source .venv/bin/activate
+python tool.py --select-llm mdls -L 1 https://github.com/pallets/click
 ```
 
-Run the tool with a repository URL:
+Recursive dependency example:
 
 ```bash
-python tool.py <repository-url>
+python tool.py --select-llm open-router -L 1 https://github.com/DanCardin/cappa
 ```
 
-Example:
+`--select-llm` defaults to `mdls`. `-L` sets the maximum recursive dependency depth and defaults to `0`; `-L 1` allows one level of missing dependencies to be generated.
 
-```bash
-python tool.py https://github.com/deisa-project/deisa-dask
-```
+The tool prepares the generated Spack repository and runs validation automatically. Installation can take several minutes.
+
+A successful run exits with code `0`. Failure or cancellation returns a non-zero exit code.
 
 ## Generated files
 
-Generated files are written under:
+Output directory names use underscores: the Spack package `py-cappa` is written under `outputs/py_cappa/`.
+
+A successful Cappa run with a generated TypeLens dependency produces:
 
 ```text
-outputs/<spack-package-name>/
+outputs/py_cappa/package.py
+outputs/py_cappa/metadata.json
+outputs/py_type_lens/package.py
 ```
 
-The output currently includes:
+The main package's `metadata.json` records source details, the recipe model, node history and validation results. Generated dependencies receive their own `package.py` and are included in the parent validation workflow.
 
-```text
-package.py
-metadata.json
-```
+When a package's output directory already exists:
 
-The `outputs/` directory is intentionally excluded from Git because it contains generated files.
+| Reply | Result |
+| --- | --- |
+| `y` | Clears that package's previous `package.py` and `metadata.json`, then continues. |
+| Enter or any other reply | Cancels the run and preserves that package's existing files. |
+
+Cancelling a dependency also stops the parent run. Files cleared after an earlier approval are not restored.
+
+Cancelled runs do not write final metadata. If the main run fails before output preparation, its existing output is preserved.
+
+The `outputs/` directory is excluded from Git.
 
 ## Current limitations
 
-- The workflow currently focuses on Python projects.
-- Recipe generation is rule-based.
-- Generated recipes may still require human review.
-- Advanced validation against Spack is not yet fully integrated.
-- LLM-assisted reasoning and confidence-based decisions are not yet implemented.
+- The workflow targets Python projects with a `[project]` table in `pyproject.toml`.
+- Early dependency checks look up package names; version conflicts are detected later by Spack validation.
+- Some valid Python version constraints are unsupported and require human review.
+- Concretization and installation cover the default variant configuration.
+- The displayed quality score is currently a fixed 90% placeholder.
+- Generated recipes may still require manual changes.
 
 ## Planned development
 
-Future work includes:
-
-- structured recipe modelling;
-- LLM-assisted metadata interpretation;
-- confidence scoring and provenance tracking;
-- automatic Spack validation;
+- recipe quality scoring;
+- runtime checks and broader optional-variant testing;
 - recipe repair based on validation errors;
-- explicit human-review branches;
 - support for additional project types and build systems.
 
 ## Project status
