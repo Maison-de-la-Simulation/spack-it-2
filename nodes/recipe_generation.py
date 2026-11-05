@@ -1,16 +1,17 @@
 from pathlib import Path
-
+from output_paths import metadata_output_path, recipe_output_path
 from state import AgentState
 
 
 def prepare_output(state: AgentState) -> dict:
     """Ask before replacing output from an earlier run."""
     package_name = state["recipe_model"]["package_name"]
-    output_dir = Path("outputs") / package_name.replace("-", "_")
+    recipe_path = recipe_output_path(package_name)
+    metadata_path = metadata_output_path(package_name)
 
-    if output_dir.exists():
+    if recipe_path.exists() or metadata_path.exists():
         answer = input(
-            f"{output_dir} already exists. "
+            f"Output for {package_name} already exists. "
             "Replace package.py and metadata.json? [y/N]: "
         )
 
@@ -23,10 +24,7 @@ def prepare_output(state: AgentState) -> dict:
                 "needs_human": False,
             }
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for filename in ("package.py", "metadata.json"):
-        output_file = output_dir / filename
+    for output_file in (recipe_path, metadata_path):
         if output_file.is_file():
             output_file.unlink()
 
@@ -58,7 +56,6 @@ def generate_recipe(state: AgentState) -> dict:
         }
 
     spack_package_name = recipe_model["package_name"]
-    spack_package_dir = spack_package_name.replace("-", "_")
     source = recipe_model["source"]
     if source["type"] == "pypi":
         source_line = f'    pypi = "{source["location"]}"'
@@ -71,9 +68,8 @@ def generate_recipe(state: AgentState) -> dict:
             "needs_human": True,
         }
 
-    output_dir = Path("outputs") / spack_package_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    recipe_path = output_dir / "package.py"
+    recipe_path = recipe_output_path(spack_package_name)
+    recipe_path.parent.mkdir(parents=True, exist_ok=True)
 
     recipe = f'''# Copyright Spack Project Developers. See COPYRIGHT file for details.
 #

@@ -14,7 +14,6 @@ class AgentState(TypedDict):
     package_name: str | None
     languages: list[str]
     build_system: str | None
-    mode: str | None
     metadata: dict
     recipe_model: dict | None
     current_stage: str
@@ -33,4 +32,7 @@ class AgentState(TypedDict):
     selected_llm: str
     validation_result: bool | None
     validation: dict
+    validation_history: list[dict]
+    repair_candidate: str | None
+    repair_attempts: int
     quality_score: float | None

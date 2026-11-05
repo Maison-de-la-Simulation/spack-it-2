@@ -1,12 +1,11 @@
 import logging
 from functools import wraps
 from time import perf_counter
+from nodes.recipe_repair import repair_recipe, route_after_recipe_repair
 from spack_cli import remove_validation_container
 from langgraph.graph import END, START, StateGraph
 
 from nodes.metadata_resolution import (
-    check_existing_spack_package,
-    spack_package_check_failed,
     check_metadata,
     check_pypi_applicability,
     extract_metadata,
@@ -22,7 +21,6 @@ from nodes.metadata_resolution import (
     route_after_pypi_applicability,
     route_after_pypi_resolution,
     route_after_repository_resolution,
-    route_after_spack_package_check,
 )
 
 from nodes.dependency_resolution import (
@@ -105,7 +103,7 @@ def add_logged_node(builder, node_name, node_function) -> None:
         history = list(state.get("node_history") or [])
         started = perf_counter()
 
-        logger.info(
+        logger.debug(
             "START node=%s package=%s depth=%s",
             node_name, package, depth,
         )
@@ -131,7 +129,7 @@ def add_logged_node(builder, node_name, node_function) -> None:
         needs_human = update.get(
             "needs_human", state.get("needs_human", False)
         )
-        log = logger.warning if needs_human else logger.info
+        log = logger.warning if needs_human else logger.debug
 
         log(
             "END node=%s package=%s depth=%s elapsed=%.2fs status=%s",
@@ -169,14 +167,6 @@ def build_graph():
     add_logged_node(workflow, "check_metadata", check_metadata)
     add_logged_node(workflow, "missing_metadata", missing_metadata)
 
-    add_logged_node(workflow,
-        "check_existing_spack_package",
-        check_existing_spack_package,
-    )
-    add_logged_node(workflow,
-        "spack_package_check_failed",
-        spack_package_check_failed,
-    )
     add_logged_node(workflow,
         "check_pypi_applicability",
         check_pypi_applicability,
@@ -229,6 +219,7 @@ def build_graph():
     add_logged_node(workflow, "install_recipe", install_recipe)
     add_logged_node(workflow, "cleanup_validation", cleanup_validation)
     add_logged_node(workflow, "recipe_validation_failed", recipe_validation_failed)
+    add_logged_node(workflow, "repair_recipe", repair_recipe)
     add_logged_node(workflow, "check_recipe_quality", check_recipe_quality)
     add_logged_node(workflow, "recipe_valid", recipe_valid)
     add_logged_node(workflow, "recipe_quality_low", recipe_quality_low)
@@ -295,18 +286,8 @@ def build_graph():
         "check_metadata",
         route_after_metadata_check,
         {
-            "check_existing_spack_package": "check_existing_spack_package",
+            "check_pypi_applicability": "check_pypi_applicability",
             "missing_metadata": "missing_metadata",
-        },
-    )
-
-    workflow.add_conditional_edges(
-        "check_existing_spack_package",
-        route_after_spack_package_check,
-        {
-            "benchmark": "check_pypi_applicability",
-            "new_package": "check_pypi_applicability",
-            "spack_package_check_failed": "spack_package_check_failed",
         },
     )
 
@@ -340,7 +321,6 @@ def build_graph():
     )
 
     workflow.add_edge("metadata_extraction_failed", END)
-    workflow.add_edge("spack_package_check_failed", END)
     workflow.add_edge("pypi_resolution_failed", END)
     workflow.add_edge("repository_source_unresolved", END)
     workflow.add_edge("repository_resolution_failed", END)
@@ -464,6 +444,16 @@ def build_graph():
         route_after_validation_cleanup,
         {
             "check_recipe_quality": "check_recipe_quality",
+            "repair_recipe": "repair_recipe",
+            "recipe_validation_failed": "recipe_validation_failed",
+        },
+    )
+
+    workflow.add_conditional_edges(
+        "repair_recipe",
+        route_after_recipe_repair,
+        {
+            "prepare_validation": "prepare_validation",
             "recipe_validation_failed": "recipe_validation_failed",
         },
     )

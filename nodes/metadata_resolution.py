@@ -8,7 +8,6 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from state import AgentState
-from spack_cli import run_spack_info
 
 
 def extract_metadata(state: AgentState) -> dict:
@@ -84,7 +83,7 @@ def route_after_metadata_check(state: AgentState) -> str:
     if state["status"] == "missing":
         return "missing_metadata"
 
-    return "check_existing_spack_package"
+    return "check_pypi_applicability"
 
 
 def missing_metadata(state: AgentState) -> dict:
@@ -93,69 +92,6 @@ def missing_metadata(state: AgentState) -> dict:
         "current_stage": "missing_metadata",
         "node_history": state.get("node_history", []) + ["missing_metadata"],
         "status": "missing required metadata",
-        "needs_human": True,
-    }
-
-
-def check_existing_spack_package(state: AgentState) -> dict:
-    """Check whether the package already exists in Spack's builtin repository."""
-    package_name = state["package_name"]
-    spack_package_name = _spack_python_name(package_name)
-
-    try:
-        result = run_spack_info(spack_package_name)
-    except OSError as error:
-        return {
-            "mode": None,
-            "current_stage": "check_existing_spack_package",
-            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
-            "status": "failed",
-            "errors": state["errors"] + [str(error)],
-        }
-
-    if result.returncode == 0:
-        return {
-            "mode": "benchmark",
-            "current_stage": "check_existing_spack_package",
-            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
-            "status": "existing package found",
-        }
-
-    if "not found in repository" in result.stderr.lower():
-        return {
-            "mode": "new_package",
-            "current_stage": "check_existing_spack_package",
-            "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
-            "status": "package not found",
-        }
-
-    return {
-        "mode": None,
-        "current_stage": "check_existing_spack_package",
-        "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
-        "status": "failed",
-        "errors": state["errors"]
-        + [result.stderr.strip() or "Spack package check failed"],
-    }
-
-
-def route_after_spack_package_check(state: AgentState) -> str:
-    """Route according to whether an existing Spack package was found."""
-    if state["status"] == "failed":
-        return "spack_package_check_failed"
-
-    if state["mode"] == "benchmark":
-        return "benchmark"
-
-    return "new_package"
-
-
-def spack_package_check_failed(state: AgentState) -> dict:
-    """Stop when the Spack package lookup fails."""
-    return {
-        "current_stage": "spack_package_check_failed",
-        "node_history": state.get("node_history", []) + ["check_existing_spack_package"],
-        "status": "Spack package check failed",
         "needs_human": True,
     }
 
@@ -548,15 +484,6 @@ def _read_dynamic_version(repo_path: Path, pyproject: dict) -> str | None:
             return match.group(1)
 
     return None
-
-
-def _spack_python_name(name: str) -> str:
-    normalized = name.lower().replace("_", "-")
-
-    if normalized.startswith("py-"):
-        return normalized
-
-    return f"py-{normalized}"
 
 
 def _find_matching_repository_tags(repo_url: str, version: str) -> list[str]:

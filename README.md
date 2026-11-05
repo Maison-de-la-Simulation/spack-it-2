@@ -21,7 +21,7 @@ Metadata extraction and recipe rendering are deterministic. An LLM assists with 
 The prototype currently:
 
 - validates the URL, clones the repository and inspects the project;
-- extracts initial metadata and checks whether the package exists in Spack;
+- extracts initial metadata from the repository;
 - selects a PyPI source distribution or repository-tag archive and reads its metadata;
 - derives a structured recipe model, with LLM assistance when needed;
 - asks before replacing existing package output;
@@ -89,27 +89,29 @@ Recursive dependency example:
 python tool.py --select-llm open-router -L 1 https://github.com/DanCardin/cappa
 ```
 
-`--select-llm` defaults to `mdls`. `-L` sets the maximum recursive dependency depth and defaults to `0`; `-L 1` allows one level of missing dependencies to be generated.
+`--select-llm` defaults to `mdls`. `-L` sets the maximum recursive dependency depth and defaults to `0`. `-L 1` allows the tool to generate recipes for missing direct dependencies. Use `--verbose` to see each workflow step in the terminal.
 
 The tool prepares the generated Spack repository and runs validation automatically. Installation can take several minutes.
+
+If Spack audit fails, the selected LLM can try up to two repairs. Each repair can change only one dependency's version constraint. The tool saves the corrected recipe only after it passes validation.
 
 A successful run exits with code `0`. Failure or cancellation returns a non-zero exit code.
 
 ## Generated files
 
-Output directory names use underscores: the Spack package `py-cappa` is written under `outputs/py_cappa/`.
+Package names use underscores in output paths: `py-cappa` becomes `py_cappa`.
 
 A successful Cappa run with a generated TypeLens dependency produces:
 
 ```text
-outputs/py_cappa/package.py
-outputs/py_cappa/metadata.json
-outputs/py_type_lens/package.py
+outputs/recipes/py_cappa/package.py
+outputs/recipes/py_type_lens/package.py
+outputs/metadata/py_cappa/metadata.json
 ```
 
-The main package's `metadata.json` records source details, the recipe model, node history and validation results. Generated dependencies receive their own `package.py` and are included in the parent validation workflow.
+The main package's `metadata.json` records source details, the recipe model, node history, each validation attempt, and the number of repairs tried. Generated dependencies receive their own `package.py` and are included in the parent validation workflow.
 
-When a package's output directory already exists:
+If either output file already exists for a package:
 
 | Reply | Result |
 | --- | --- |
@@ -135,7 +137,7 @@ The `outputs/` directory is excluded from Git.
 
 - recipe quality scoring;
 - runtime checks and broader optional-variant testing;
-- recipe repair based on validation errors;
+- support for repairing more types of validation errors;
 - support for additional project types and build systems.
 
 ## Project status

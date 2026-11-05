@@ -41,7 +41,6 @@ def initialize_state(state: AgentState) -> dict:
         "package_name": None,
         "languages": [],
         "build_system": None,
-        "mode": None,
         "metadata": {},
         "recipe_model": None,
         "validation_result": None,
