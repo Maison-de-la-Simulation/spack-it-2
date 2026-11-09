@@ -1,3 +1,4 @@
+import ast
 import shutil
 from pathlib import Path
 from nodes.recipe_repair import should_repair_recipe
@@ -58,6 +59,31 @@ def route_after_validation_preparation(state: AgentState) -> str:
     return "cleanup_validation"
 
 
+def find_missing_dependencies(recipe, dependencies):
+    required = {dep["name"] for dep in dependencies if not dep.get("when")}
+    declared = set()
+
+    for package in ast.parse(recipe).body:
+        if not isinstance(package, ast.ClassDef):
+            continue
+
+        for statement in package.body:
+            if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Call):
+                continue
+
+            call = statement.value
+            if not isinstance(call.func, ast.Name) or call.func.id != "depends_on":
+                continue
+            if not call.args or any(option.arg == "when" for option in call.keywords):
+                continue
+
+            spec = call.args[0]
+            if isinstance(spec, ast.Constant) and isinstance(spec.value, str):
+                declared.add(spec.value.split("@", 1)[0])
+
+    return sorted(required - declared)
+
+
 def validate_recipe(state: AgentState) -> dict:
     """Run the Spack audit on generated recipes."""
     audit = {"passed": False, "exit_code": None, "stdout": "", "stderr": ""}
@@ -87,12 +113,43 @@ def validate_recipe(state: AgentState) -> dict:
         message = audit["stderr"] or audit["stdout"] or "Spack audit failed"
         errors.append(message.strip())
 
+    model = state["recipe_model"]
+    package_dir = model["package_name"].replace("-", "_")
+    staged_recipe = (
+        GENERATED_DIR / "spack_repo/generated/packages" / package_dir / "package.py"
+    )
+
+    missing = []
+    dependency_error = ""
+    try:
+        missing = find_missing_dependencies(
+            staged_recipe.read_text(encoding="utf-8"),
+            model.get("dependencies", []),
+        )
+        if missing:
+            dependency_error = "Missing required dependencies: " + ", ".join(missing)
+    except (OSError, SyntaxError) as error:
+        dependency_error = f"Could not check required dependencies: {error}"
+
+    validation["required_dependencies"] = {
+        "passed": not dependency_error,
+        "missing": missing,
+    }
+    if dependency_error:
+        print(dependency_error)
+        errors.append(dependency_error)
+
+    passed = audit["passed"] and not dependency_error
+    status = "recipe audit passed" if audit["passed"] else "recipe audit failed"
+    if audit["passed"] and dependency_error:
+        status = "required dependency check failed"
+
     return {
         "current_stage": "validate_recipe",
-        "validation_result": audit["passed"],
+        "validation_result": passed,
         "validation": validation,
-        "status": "recipe audit passed" if audit["passed"] else "recipe audit failed",
-        "needs_human": not audit["passed"],
+        "status": status,
+        "needs_human": not passed,
         "errors": errors,
     }
 
