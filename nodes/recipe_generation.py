@@ -9,7 +9,8 @@ def prepare_output(state: AgentState) -> dict:
     recipe_path = recipe_output_path(package_name)
     metadata_path = metadata_output_path(package_name)
 
-    if recipe_path.exists() or metadata_path.exists():
+    output_exists = recipe_path.exists() or metadata_path.exists()
+    if output_exists and not state.get("overwrite_output", False):
         answer = input(
             f"Output for {package_name} already exists. "
             "Replace package.py and metadata.json? [y/N]: "

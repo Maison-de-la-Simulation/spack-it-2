@@ -188,6 +188,7 @@ def package_dependency_recursively(state: AgentState) -> dict:
             "dependency_path": dependency_path,
             "processed_packages": processed_packages,
             "selected_llm": state.get("selected_llm", "mdls"),
+            "overwrite_output": state.get("overwrite_output", False),
         }
     )
 

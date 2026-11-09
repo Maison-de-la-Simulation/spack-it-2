@@ -23,6 +23,7 @@ class AgentState(TypedDict):
     status: str
     output_prepared: bool
     output_cancelled: bool
+    overwrite_output: bool
     remaining_depth: int
     dependency_path: list[str]
     processed_packages: list[str]

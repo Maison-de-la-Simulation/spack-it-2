@@ -118,6 +118,8 @@ If either output file already exists for a package:
 | `y` | Clears that package's previous `package.py` and `metadata.json`, then continues. |
 | Enter or any other reply | Cancels the run and preserves that package's existing files. |
 
+Use `-y` (or `--yes`) to replace existing output without asking, including for dependencies generated during the run.
+
 Cancelling a dependency also stops the parent run. Files cleared after an earlier approval are not restored.
 
 Cancelled runs do not write final metadata. If the main run fails before output preparation, its existing output is preserved.

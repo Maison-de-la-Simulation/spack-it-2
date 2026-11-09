@@ -67,6 +67,7 @@ def run_package(
     repo_url: str,
     remaining_depth: int,
     selected_llm: str,
+    overwrite_output: bool = False,
 ) -> bool:
     final_state = graph.invoke(
         {
@@ -75,6 +76,7 @@ def run_package(
             "dependency_path": [],
             "processed_packages": [],
             "selected_llm": selected_llm,
+            "overwrite_output": overwrite_output,
         }
     )
 
@@ -108,6 +110,12 @@ def main() -> None:
         help="Show detailed workflow logs",
     )
 
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Replace existing recipe and metadata files without asking",
+    )
     parser.add_argument("repo_url")
     args = parser.parse_args()
 
@@ -124,6 +132,7 @@ def main() -> None:
         repo_url=args.repo_url,
         remaining_depth=args.depth,
         selected_llm=args.select_llm,
+        overwrite_output=args.yes
     )
 
     if not success:
