@@ -93,7 +93,10 @@ python tool.py --select-llm open-router -L 1 https://github.com/DanCardin/cappa
 
 The tool prepares the generated Spack repository and runs validation automatically. Installation can take several minutes.
 
-If Spack audit fails, the selected LLM can try up to two repairs. Each repair can change only one dependency's version constraint. The tool saves the corrected recipe only after it passes validation.
+The LLM can correct dependency version errors reported by Spack audit, and the tool can restore missing required dependencies from the recipe model.
+The tool tries at most two repairs and skips repair if validation reports more than three issues.
+A repair can change or add up to five dependency lines compared with the original recipe.
+The repaired recipe is saved only after it passes audit, concretization, and installation.
 
 A successful run exits with code `0`. Failure or cancellation returns a non-zero exit code.
 
