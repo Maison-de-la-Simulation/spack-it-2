@@ -126,10 +126,9 @@ def add_logged_node(builder, node_name, node_function) -> None:
             raise
 
         status = update.get("status", state.get("status", "unknown"))
-        needs_human = update.get(
-            "needs_human", state.get("needs_human", False)
-        )
-        log = logger.warning if needs_human else logger.debug
+        new_errors = len(update.get("errors", [])) > len(state.get("errors", []))
+        needs_review = update.get("needs_human") and not state.get("needs_human")
+        log = logger.warning if new_errors or needs_review else logger.debug
 
         log(
             "END node=%s package=%s depth=%s elapsed=%.2fs status=%s",

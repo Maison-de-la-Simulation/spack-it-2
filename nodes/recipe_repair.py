@@ -58,6 +58,7 @@ def repair_recipe(state):
     provider = state["selected_llm"]
 
     attempts = state.get("repair_attempts", 0) + 1
+    logger.info("Repair attempt %d/%d", attempts, MAX_REPAIR_ATTEMPTS)
     try:
         original_recipe = Path(metadata["generated_recipe_path"]).read_text()
         recipe = state.get("repair_candidate") or original_recipe
@@ -69,8 +70,9 @@ def repair_recipe(state):
 
         if not audit["passed"]:
             logger.info(
-                "Repair attempt %d/%d: sending audit log (exit %s) to %s",
-                attempts, MAX_REPAIR_ATTEMPTS, audit.get("exit_code"), provider,
+                "Sending audit log (exit %s) to %s",
+                audit.get("exit_code"),
+                provider,
             )
             diagnosis = diagnose_failure("audit", audit, provider)
             logger.info("Diagnosis: %s", diagnosis)
@@ -108,6 +110,7 @@ def repair_recipe(state):
             "errors": state.get("errors", []) + [str(error)],
         }
 
+    logger.info("Rechecking the proposed repair in a fresh validation container.")
     return {
         "repair_candidate": candidate,
         "status": "recipe repair proposed",

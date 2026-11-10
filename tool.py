@@ -55,11 +55,15 @@ def write_output(final_state: dict) -> None:
 
     print("Final status:", final_state.get("status"))
     print("Current stage:", final_state.get("current_stage"))
-    print("Node history:", final_state.get("node_history", []))
     print("Package name:", final_state.get("package_name"))
     print("Spack package name:", spack_package_name)
     print("Validation result:", final_state.get("validation_result"))
-    print("Quality score (%) (placeholder):", final_state.get("quality_score"))
+    if output_data["repair_attempts"]:
+        print("Repair attempts:", output_data["repair_attempts"])
+    if output_data["status"] != "recipe valid" and output_data["errors"]:
+        error = output_data["errors"][-1].strip()
+        if error and "\n" not in error:
+            print("Error:", error)
     print("Metadata written to:", metadata_path)
 
 
@@ -128,6 +132,7 @@ def main() -> None:
         datefmt="%H:%M:%S",
     )
 
+    logging.getLogger("urllib3").setLevel(logging.INFO)
     success = run_package(
         repo_url=args.repo_url,
         remaining_depth=args.depth,
