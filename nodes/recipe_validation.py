@@ -1,4 +1,5 @@
 import ast
+import logging
 import shutil
 from pathlib import Path
 from nodes.recipe_repair import should_repair_recipe
@@ -10,6 +11,7 @@ from spack_cli import (
 )
 from state import AgentState
 GENERATED_DIR = Path("validation/generated")
+logger = logging.getLogger(__name__)
 
 def prepare_validation(state: AgentState) -> dict:
     packages = [state["recipe_model"]["package_name"]]
@@ -24,6 +26,7 @@ def prepare_validation(state: AgentState) -> dict:
     try:
         repo_root = stage_generated_repo(packages)
 
+        # Try the repair in the staged repo before touching the saved recipe.
         candidate = state.get("repair_candidate")
         if candidate:
             package_dir = packages[0].replace("-", "_")
@@ -97,6 +100,7 @@ def validate_recipe(state: AgentState) -> dict:
         for package in packages:
             audit_packages.append(f"generated.{package}")
 
+        logger.info("Spack audit output:")
         result = run_validation_step(container_name, "audit", audit_packages)
         audit.update(
             passed=result.returncode == 0,
@@ -107,6 +111,10 @@ def validate_recipe(state: AgentState) -> dict:
     except (OSError, ValueError) as error:
         audit["stderr"] = str(error)
 
+    logger.info(
+        "Spack audit result: %s",
+        "passed" if audit["passed"] else "failed",
+    )
     validation["audit"] = audit
     errors = list(state.get("errors", []))
     if not audit["passed"]:
@@ -135,8 +143,8 @@ def validate_recipe(state: AgentState) -> dict:
         "passed": not dependency_error,
         "missing": missing,
     }
+    logger.info("Required dependency check: %s", dependency_error or "passed")
     if dependency_error:
-        print(dependency_error)
         errors.append(dependency_error)
 
     passed = audit["passed"] and not dependency_error
@@ -305,6 +313,7 @@ def cleanup_validation(state: AgentState) -> dict:
         try:
             temporary_path.write_text(candidate, encoding="utf-8")
             temporary_path.replace(recipe_path)
+            logger.info("Saved the validated repair to %s", recipe_path)
         except OSError as error:
             errors.append(f"Could not save repaired recipe: {error}")
             passed = False

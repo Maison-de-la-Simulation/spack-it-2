@@ -65,8 +65,6 @@ def repair_recipe(state):
         candidate = recipe
 
         missing = state["validation"].get("required_dependencies", {}).get("missing", [])
-        if missing:
-            logger.info("Diagnosis: missing required dependencies: %s", ", ".join(missing))
 
         if not audit["passed"]:
             logger.info(
@@ -74,8 +72,9 @@ def repair_recipe(state):
                 audit.get("exit_code"),
                 provider,
             )
+            # TODO: Give retry prompts the feedback from earlier attempts.
             diagnosis = diagnose_failure("audit", audit, provider)
-            logger.info("Diagnosis: %s", diagnosis)
+            logger.info("LLM diagnosis: %s", diagnosis)
 
             requirements = (
                 metadata.get("build_requires", [])
@@ -95,9 +94,14 @@ def repair_recipe(state):
             if dep["name"] in missing and not dep.get("when")
         ]
         if new_lines:
+            if audit["passed"]:
+                logger.info("Repair source: recipe model (no LLM call).")
+            else:
+                logger.info("Adding missing dependencies from the recipe model.")
             candidate = candidate.rstrip() + "\n" + "\n".join(new_lines) + "\n"
             ast.parse(candidate)
 
+        # Count edits against the saved recipe so the line limit applies across retries.
         original_count = len(original_recipe.strip().splitlines())
         previous_additions = recipe.strip().splitlines()[original_count:]
         check_repair_change(original_recipe, candidate, previous_additions + new_lines)

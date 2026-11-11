@@ -436,6 +436,7 @@ def build_graph():
         },
     )
 
+    # TODO: Add a runtime check after a successful install, before cleanup.
     workflow.add_edge("install_recipe", "cleanup_validation")
 
     workflow.add_conditional_edges(
